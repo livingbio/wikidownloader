@@ -1,3 +1,5 @@
+
+
 # -*- coding: utf-8 -*-
 from socket import setdefaulttimeout
 from bs4 import BeautifulSoup
@@ -16,16 +18,11 @@ from xml import sax
 from multiprocessing import Pool
 from bany_logger import setLogger
 import logging as log
-import jieba
-#from jieba import cut as jieba_cut
 from janome.tokenizer import Tokenizer as ja_Tokenizer
 from zhcn_to_zhtw.conv2cn import Conv2Cn
 from suds.client import Client
-# from segmenter import word_segment
 
-jieba.load_userdict('data/cw_dict.txt')
 segClient = Client('http://localhost:9999/seg?wsdl')
-
 
 # 為了讓 word segmentation function 可替換，需要有共同的interface
 # 所有的 word segmentation，統一以空白字元作為斷詞符號
@@ -36,7 +33,8 @@ segClient = Client('http://localhost:9999/seg?wsdl')
 #     return u' '.join((u' '.join(jieba_cut(text))).split())
 # def zh_segment(text):
 #     return u' '.join(word_segment(text, 'zh'))
-zh_segment = segClient.service.getSegmentResult
+def zh_segment(text):
+    return segClient.service.getSegmentResult(text)
 
 
 def ja_segment(text):
@@ -47,7 +45,7 @@ def ja_segment(text):
 setdefaulttimeout(30)
 # 預設情況下，logging會同時輸出到 stdout 及檔案(檔名為日期)
 setLogger()
-MongoURL = 'mongodb://NLP:NLP1234@localhost/NLP'
+MongoURL = 'mongodb://localhost/NLP'
 conv = Conv2Cn()
 
 
@@ -242,16 +240,41 @@ def tidify_wiki_zh(t):
     t = sub(u'==延伸閱讀==.*', '', t)
     t = sub(u'==外部鏈接==.*', '', t)
     t = sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
-    t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
+    t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ').replace('&nbsp;', ' ')
     t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
-         .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
+         .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ") \
+         .replace("' ", " ") \
          .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2013', '-')
-    t = t.replace(u'，', u' , ').replace(u'。', u' . ').replace(u'；', u' ; ').replace(u'：', u' : ') \
-         .replace(u'、', u' , ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ').replace(u'」', ' ') \
+    t = t.replace(u'，', u' , ').replace(u'。', u' . ').replace(u'；', u' ; ') \
+         .replace(u'：', u' : ') \
+         .replace(u'、', u' , ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ') \
+         .replace(u'」', ' ').replace(u'[[', '[ [').replace(u']]', '] ]') \
          .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ( ').replace(u'）', ' ) ') \
-         .replace(u'！', u' ! ').replace(u'？', ' ? ').replace(u'《', ' ').replace(u'》', ' ').replace(u'·', ' ')
-    return zh_segment(t)
+         .replace(u'！', u' ! ').replace(u'？', ' ? ').replace(u'《', ' ').replace(u'》', ' ') \
+         .replace(u'·', ' ')
+    t = zh_segment(t)
+    if t is None:
+        return ''
+    t = t.split()
+    text = []
+    tmp = []
+    inside_bracket = False
+    for i in range(len(t) - 1):
+        if t[i] == '[' and t[i+1] == '[':
+            inside_bracket = True
+        if inside_bracket and t[i] == ']' and t[i+1] == ']':
+            inside_bracket = False
+            text.append(''.join(tmp))
+            tmp = []
+        if t[i] == '[' or t[i] == ']':
+            continue
+        if inside_bracket:
+            tmp.append(t[i])
+        else:
+            text.append(t[i])
+    text.append(t[-1])
+    return ' '.join(text)
 
 
 def tidify_wiki_ja(t):

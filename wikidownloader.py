@@ -1,5 +1,3 @@
-
-
 # -*- coding: utf-8 -*-
 from socket import setdefaulttimeout
 from bs4 import BeautifulSoup
@@ -19,10 +17,8 @@ from multiprocessing import Pool
 from bany_logger import setLogger
 import logging as log
 from janome.tokenizer import Tokenizer as ja_Tokenizer
-from zhcn_to_zhtw.conv2cn import Conv2Cn
-from suds.client import Client
-
-segClient = Client('http://localhost:9999/seg?wsdl')
+from zhconvert import *
+zh = ZHConvert('http://localhost:9998/pos?wsdl', 'http://localhost:9999/seg?wsdl')
 
 # 為了讓 word segmentation function 可替換，需要有共同的interface
 # 所有的 word segmentation，統一以空白字元作為斷詞符號
@@ -34,7 +30,16 @@ segClient = Client('http://localhost:9999/seg?wsdl')
 # def zh_segment(text):
 #     return u' '.join(word_segment(text, 'zh'))
 def zh_segment(text):
-    return segClient.service.getSegmentResult(text)
+    try:
+        seg = zh.tw_segment(text)
+    except:
+        try:  # try again
+            seg = zh.tw_segment(text)
+        except:
+            return None
+    if seg is None:
+        return None
+    return ' '.join(seg)
 
 
 def ja_segment(text):
@@ -46,8 +51,6 @@ setdefaulttimeout(30)
 # 預設情況下，logging會同時輸出到 stdout 及檔案(檔名為日期)
 setLogger()
 MongoURL = 'mongodb://localhost/NLP'
-conv = Conv2Cn()
-
 
 ######################################################################
 # Start of main program                                              #
@@ -241,22 +244,24 @@ def tidify_wiki_zh(t):
     t = sub(u'==外部鏈接==.*', '', t)
     t = sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ').replace('&nbsp;', ' ')
-    t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
-         .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
+    t = t.replace(', ', ' ').replace('. ', ' ').replace('(', ' ').replace(')', ' ') \
+         .replace('!', ' ').replace('?', ' ').replace(';', ' ').replace(': ', ' ') \
          .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ") \
          .replace("' ", " ") \
          .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2013', '-')
-    t = t.replace(u'，', u' , ').replace(u'。', u' . ').replace(u'；', u' ; ') \
-         .replace(u'：', u' : ') \
-         .replace(u'、', u' , ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ') \
+    t = t.replace(u'，', u' ').replace(u'。', u' ').replace(u'；', u' ') \
+         .replace(u'：', u' ') \
+         .replace(u'、', u' ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ') \
          .replace(u'」', ' ').replace(u'[[', '[ [').replace(u']]', '] ]') \
-         .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ( ').replace(u'）', ' ) ') \
-         .replace(u'！', u' ! ').replace(u'？', ' ? ').replace(u'《', ' ').replace(u'》', ' ') \
+         .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ').replace(u'）', ' ') \
+         .replace(u'！', u' ').replace(u'？', ' ').replace(u'《', ' ').replace(u'》', ' ') \
          .replace(u'·', ' ')
     t = zh_segment(t)
     if t is None:
         return ''
     t = t.split()
+    if len(t) == 0:
+        return ''
     text = []
     tmp = []
     inside_bracket = False
@@ -449,14 +454,14 @@ def parse_article_zh(title, identical, the_id, text, buffer, temp_collect):
     temp_collect: MongoDB的collection物件
     """
 
-    text = conv.conv(text).lower()  # 中文仍然會夾雜英文，所以 lower() 是必須的
+    text = conv2tw(text).lower()  # 中文仍然會夾雜英文，所以 lower() 是必須的
     links = set(findall('\[\[([^#]+?)[\]\|#]', text))
     cat = [x[9:].lower() for x in links if x[:9] == u'category:']
     related = [x.lower() for x in links if x.find(':') < 0]
 
     data = {}
     title = (title[:title.find('(')] if title.find('(') > -1 else title).lower().strip()
-    title = conv.conv(title)
+    title = conv2tw(title)
     data[u'title'] = title
     if identical:
         data[u'identical'] = identical.lower()
@@ -680,6 +685,7 @@ def wiki_xml_parser(args):
         temp_collect.insert_many(handler.buffer)
         del handler.buffer[:]
     log.info('[{}] {} parsing finished, time={}'.format(worker_id, xmlBz2File, str(dt.now() - start)))
+    return None
 
 
 def parse_wiki(urlData, worker):

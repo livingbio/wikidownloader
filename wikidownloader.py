@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from socket import setdefaulttimeout
 from bs4 import BeautifulSoup
-from urllib.request import urlretrieve
-from urllib.request import urlopen
+from urllib import urlretrieve
+from urllib2 import urlopen
 from argparse import ArgumentParser
 from pymongo import MongoClient
 import os
@@ -14,43 +14,49 @@ import numpy as np
 from bz2 import BZ2File
 from xml import sax
 from multiprocessing import Pool
-from bany_logger import setLogger
 import logging as log
-from janome.tokenizer import Tokenizer as ja_Tokenizer
-from zhconvert import *
-zh = ZHConvert('http://localhost:9998/pos?wsdl', 'http://localhost:9999/seg?wsdl')
+from pyknp import Juman
+from zhconvert import ZHConvert, conv2tw
 
-# 為了讓 word segmentation function 可替換，需要有共同的interface
-# 所有的 word segmentation，統一以空白字元作為斷詞符號
-# 輸入是 "今天天氣不錯" --> 輸出是 "今天 天氣 不 錯"
-# 所以 zh_segment(u'今天天氣不錯').split() --> [u'今天', u'天氣', u'不', u'錯']
-# 如果未來要替換 segmenter，只需要修改這三個函式，讓輸出符合規格即可
-# def zh_segment(text):
-#     return u' '.join((u' '.join(jieba_cut(text))).split())
-# def zh_segment(text):
-#     return u' '.join(word_segment(text, 'zh'))
+zh = ZHConvert('http://localhost:9998/pos?wsdl', 'http://localhost:9999/seg?wsdl')
+ja = Juman()
+MongoURL = 'mongodb://localhost/NLP'
+# default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
+setdefaulttimeout(30)
+
+
 def zh_segment(text):
+    """
+    為了讓 word segmentation function 可替換，需要有共同的interface。
+    所有的 word segmentation，統一以空白字元作為斷詞符號。
+    輸入是 "今天天氣不錯" --> 輸出是 "今天 天氣 不 錯"。
+    所以 zh_segment(u'今天天氣不錯').split() --> [u'今天', u'天氣', u'不', u'錯']
+    如果未來要替換 segmenter，只需要修改這三個函式，讓輸出符合規格即可
+    """
+    if len(text) < 10:
+        return None
     try:
         seg = zh.tw_segment(text)
     except:
-        try:  # try again
-            seg = zh.tw_segment(text)
-        except:
-            return None
+        return None
     if seg is None:
         return None
     return ' '.join(seg)
 
 
 def ja_segment(text):
-    return u' '.join(token.surface for token in ja_Tokenizer().tokenize(u' '.join(text.split())))
+    seg = ja.analysis(text)
+    if seg is None:
+        return None
+    return ' '.join([morph.midasi for morph in seg])
 
 
-# default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
-setdefaulttimeout(30)
-# 預設情況下，logging會同時輸出到 stdout 及檔案(檔名為日期)
-setLogger()
-MongoURL = 'mongodb://localhost/NLP'
+def to_half_word(text):
+    '''Transfer double-width character to single-width character.'''
+    return ''.join([chr(ord(ch) - 0xff00 + 0x20)
+                    if ord(ch) >= 0xff01 and ord(ch) <= 0xff5e else ch
+                    for ch in text])
+
 
 ######################################################################
 # Start of main program                                              #
@@ -170,7 +176,7 @@ def tidify_wiki_en(t):
        如果不是，可以用 unicode(text, errors='ignore') 來轉換成 unicode string。
     """
 
-    text = t.replace('\n', ' ')
+    text = to_half_word(t).replace('\n', ' ')
     t = ''
     level = 0
     start = 0
@@ -202,8 +208,12 @@ def tidify_wiki_en(t):
     t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
          .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2013', '-')
-    t = ' '.join(t.split())         # tokenize and delete redundant spaces
+         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
+         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
+         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
+         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
+         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
+    t = sub(' +', ' ', t)
     return(t)
 
 
@@ -248,7 +258,11 @@ def tidify_wiki_zh(t):
          .replace('!', ' ').replace('?', ' ').replace(';', ' ').replace(': ', ' ') \
          .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ") \
          .replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2013', '-')
+         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
+         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
+         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
+         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
+         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
     t = t.replace(u'，', u' ').replace(u'。', u' ').replace(u'；', u' ') \
          .replace(u'：', u' ') \
          .replace(u'、', u' ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ') \
@@ -257,10 +271,10 @@ def tidify_wiki_zh(t):
          .replace(u'！', u' ').replace(u'？', ' ').replace(u'《', ' ').replace(u'》', ' ') \
          .replace(u'·', ' ')
     t = zh_segment(t)
-    if t is None:
+    if t is None or len(t) <= 10:
         return ''
-    t = t.split()
-    if len(t) == 0:
+    t = to_half_word(t).split()
+    if len(t) <= 1:
         return ''
     text = []
     tmp = []
@@ -317,15 +331,22 @@ def tidify_wiki_ja(t):
     t = sub(u'==参照==.*', '', t)
     t = sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
-    t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
+    t = t.replace(', ', '、').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
          .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2013', '-')
-    t = t.replace(u'，', u' , ').replace(u'。', u' . ').replace(u'；', u' ; ').replace(u'：', u' : ') \
-         .replace(u'、', u' , ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ').replace(u'」', ' ') \
+         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
+         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
+         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
+         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
+         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
+    t = t.replace(u'，', u'、') \
+         .replace(u'、', u'、').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ').replace(u'」', ' ') \
          .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ( ').replace(u'）', ' ) ') \
          .replace(u'！', u' ! ').replace(u'？', ' ? ').replace(u'《', ' ').replace(u'》', ' ').replace(u'·', ' ')
-    return ja_segment(t)
+    t = ja_segment(t)
+    if t is None or len(t) == 0:
+        return ''
+    return to_half_word(t)
 
 
 def tidify_wiki_ko(t):
@@ -366,7 +387,11 @@ def tidify_wiki_ko(t):
     t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
          .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2013', '-')
+         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
+         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
+         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
+         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
+         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
     t = t.replace(u'，', u' , ').replace(u'。', u' . ').replace(u'；', u' ; ').replace(u'：', u' : ') \
          .replace(u'、', u' , ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ').replace(u'」', ' ') \
          .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ( ').replace(u'）', ' ) ') \
@@ -454,7 +479,10 @@ def parse_article_zh(title, identical, the_id, text, buffer, temp_collect):
     temp_collect: MongoDB的collection物件
     """
 
-    text = conv2tw(text).lower()  # 中文仍然會夾雜英文，所以 lower() 是必須的
+    if isinstance(text, basestring) and len(text) > 0:
+        text = conv2tw(text).lower()  # 中文仍然會夾雜英文，所以 lower() 是必須的
+    else:
+        text = ''
     links = set(findall('\[\[([^#]+?)[\]\|#]', text))
     cat = [x[9:].lower() for x in links if x[:9] == u'category:']
     related = [x.lower() for x in links if x.find(':') < 0]

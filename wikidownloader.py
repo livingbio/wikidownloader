@@ -45,7 +45,12 @@ def zh_segment(text):
 
 
 def ja_segment(text):
-    seg = ja.analysis(text)
+    try:
+        seg = ja.analysis(text)
+    except:
+        with open('log.txt', 'wa') as f:
+            f.write(text.encode('utf8') + '\n')
+        return None
     if seg is None:
         return None
     return ' '.join([morph.midasi for morph in seg])
@@ -331,7 +336,7 @@ def tidify_wiki_ja(t):
     t = sub(u'==参照==.*', '', t)
     t = sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
-    t = t.replace(', ', '、').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
+    t = t.replace(', ', u'、').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
          .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
          .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \

@@ -45,15 +45,18 @@ def zh_segment(text):
 
 
 def ja_segment(text):
-    try:
-        seg = ja.analysis(text)
-    except:
-        with open('log.txt', 'wa') as f:
-            f.write(text.encode('utf8') + '\n')
+    seg_text = []
+    for sent in text.split(u'。'):
+        try:
+            seg = ja.analysis(sent)
+            seg_text.append(' '.join([morph.midasi for morph in seg]))
+        except:
+            with open('log.txt', 'wa') as f:
+                f.write(text.encode('utf8') + '\n')
+    text = ' '.join(seg_text)
+    if len(text) < 10:
         return None
-    if seg is None:
-        return None
-    return ' '.join([morph.midasi for morph in seg])
+    return text
 
 
 def to_half_word(text):
@@ -231,7 +234,7 @@ def tidify_wiki_zh(t):
 
     if not t or len(t) < 10:
         return u''
-    text = t.replace('\n', ' ')
+    text = sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
     t = ''
     level = 0
     start = 0
@@ -310,7 +313,7 @@ def tidify_wiki_ja(t):
 
     if not t or len(t) < 10:
         return u''
-    text = t.replace('\n', ' ')
+    text = sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
     t = ''
     level = 0
     start = 0
@@ -348,6 +351,7 @@ def tidify_wiki_ja(t):
          .replace(u'、', u'、').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ').replace(u'」', ' ') \
          .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ( ').replace(u'）', ' ) ') \
          .replace(u'！', u' ! ').replace(u'？', ' ? ').replace(u'《', ' ').replace(u'》', ' ').replace(u'·', ' ')
+    t = t.replace('[', '').replace(']', '').replace(' ', '')
     t = ja_segment(t)
     if t is None or len(t) == 0:
         return ''

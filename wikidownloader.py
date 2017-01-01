@@ -184,7 +184,14 @@ def tidify_wiki_en(t):
        如果不是，可以用 unicode(text, errors='ignore') 來轉換成 unicode string。
     """
 
+    if not t or len(t) < 10:
+        return u''
     text = to_half_word(t).replace('\n', ' ')
+    words = set(text.split())
+    for w in words:
+        if w[0].isupper() and w[1:].islower():  # 可能是字首或人名
+            if text.count(w.lower()) > 0:  # 多半是字首
+                text = text.replace(w, w.lower())  # 一律以小寫代替
     t = ''
     level = 0
     start = 0
@@ -203,7 +210,7 @@ def tidify_wiki_en(t):
     t = sub('<!--.*?-->', '', t)                    # delete <!--...-->
     t = sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
     t = sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
+    t = sub('\[\[[^\]]*?/:.*?\]\]', '', t)           # delete [[AA:BB]]
     t = sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
     t = sub('</?[^>]+?>', '', t)                    # delete <tag>
     t = sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
@@ -435,22 +442,22 @@ def parse_article_en(title, identical, the_id, text, buffer, temp_collect):
     temp_collect: MongoDB的collection物件
     """
 
-    text = text.lower()
+    text = text
     links = set(findall('\[\[([^#]+?)[\]\|#]', text))
     # 所有的 [[...]] 會分為三類
     # 'category:' 開頭的放在 cat 中
     # 'xxx:' 開頭的會丟掉
     # 其他的會放在 related 中
-    cat = [x[9:].lower() for x in links if x[:9] == u'category:']
-    related = [x.lower() for x in links if x.find(':') < 0]
+    cat = [x[9:] for x in links if x[:9] == u'category:']
+    related = [x for x in links if x.find(':') < 0]
 
     # 準備要放進 MongoDB 的資料
     data = {}
     # title 中的 (...) 要刪除
-    title = (title[:title.find('(')] if title.find('(') > -1 else title).lower().strip()
+    title = (title[:title.find('(')] if title.find('(') > -1 else title).strip()
     data[u'title'] = title
     if identical:
-        data[u'identical'] = identical.lower()
+        data[u'identical'] = identical
     if the_id:
         data[u'id'] = int(the_id)
     if len(cat):
@@ -463,7 +470,7 @@ def parse_article_en(title, identical, the_id, text, buffer, temp_collect):
         i = text.find('{{cat main|')  # 如果有對應的main article，記錄在這裡
         if i > -1:
             j = text.find('}}', i)
-            data[u'mainArticle'] = text[(i + 11):j].lower()
+            data[u'mainArticle'] = text[(i + 11):j]
     else:
         data[u'isArticle'] = True
         if text[:9] != u'#redirect' and text.find('{{disambig') == -1:

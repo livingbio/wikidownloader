@@ -7,7 +7,7 @@ from argparse import ArgumentParser
 from pymongo import MongoClient
 import os
 from sys import exit
-from re import compile, findall, sub
+import re
 from datetime import datetime as dt
 from time import mktime, sleep
 import numpy as np
@@ -86,9 +86,9 @@ def prepare_wiki_url(base_url):
 
     bhtml = BeautifulSoup(html, 'lxml')
     # 我們只要抓檔名中包含 pages-articles 的檔案
-    tag_a = bhtml.find_all('a', {'href': compile('.*pages-articles\d.*bz2$')})
+    tag_a = bhtml.find_all('a', {'href': re.compile('.*pages-articles\d.*bz2$')})
     if len(tag_a) == 0:
-        tag_a = bhtml.find_all('a', {'href': compile('.*pages-articles\.xml\.bz2$')})
+        tag_a = bhtml.find_all('a', {'href': re.compile('.*pages-articles\.xml\.bz2$')})
     s = [tag.next.next.split() for tag in tag_a]
 
     href = np.array([tag['href'] for tag in tag_a], dtype=np.str)
@@ -187,11 +187,6 @@ def tidify_wiki_en(t):
     if not t or len(t) < 10:
         return u''
     text = to_half_word(t).replace('\n', ' ')
-    words = set(text.split())
-    for w in words:
-        if w[0].isupper() and w[1:].islower():  # 可能是字首或人名
-            if text.count(w.lower()) > 0:  # 多半是字首
-                text = text.replace(w, w.lower())  # 一律以小寫代替
     t = ''
     level = 0
     start = 0
@@ -207,29 +202,51 @@ def tidify_wiki_en(t):
                 start = i + 1
     t += text[start:]
 
-    t = sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = sub('\[\[[^\]]*?/:.*?\]\]', '', t)           # delete [[AA:BB]]
-    t = sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = sub('==see also==.*', '', t)
-    t = sub('==references==.*', '', t)
-    t = sub('==further reading==.*', '', t)
-    t = sub('==external links==.*', '', t)
-    t = sub('=+[ \w]+?=+', '', t)                   # delete == tt ==
+    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
+    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
+    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
+    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
+    t = re.sub('\[\[[^\]]*?/:.*?\]\]', '', t)          # delete [[AA:BB]]
+    t = re.sub('\[\[File:.*?\]\]', '', t)
+    t = re.sub('\[\[Category:.*?\]\]', '', t)
+    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
+    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
+    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
+    t = re.sub('==see also==.*', '', t)
+    t = re.sub('==references==.*', '', t)
+    t = re.sub('==further reading==.*', '', t)
+    t = re.sub('==external links==.*', '', t)
+    t = re.sub('=+[ \w]+?=+', '', t)                   # delete == tt ==
+    t = ''.join([ch for ch in t if ord(ch) < 0x2000])
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
     t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
-         .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
-         .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
-         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
-         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
-         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
-         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
-    t = sub(' +', ' ', t)
-    return(t)
+         .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ').replace(':', ' ') \
+         .replace("'''", ' ').replace('"', ' ').replace('-', ' ').replace('^', ' ') \
+         .replace('*', ' ').replace('$', '').replace('/', ' ').replace('&nbsp', ' ') \
+         .replace(u'…', ' ').replace(u'´', '\'').replace("''", ' ')
+    t = re.sub('([A-Za-z]),([A-Za-z])', '\\1 , \\2', t)
+    t = re.sub('\\[\w\^0-9]+', ' ', t)
+    t = re.sub('&[a-z]+', ' ', t)
+    t = re.sub('([a-z])([\.,])', '\\1 \\2', t)
+    t = re.sub(' [0-9][0-9,\-\.\%\^]* ', ' #NUM ', t)
+
+    quotes = re.findall('\[\[.*?\]\]', t)
+    for i, q in enumerate(quotes):
+        t = t.replace(q, '[[{}]]'.format(i))
+
+    words = set(t.split())
+    for w in words:
+        if w[0].isupper() and w[1:].islower():  # 可能是字首或人名
+            if w.lower() in words:  # 多半是字首
+                text = text.replace(w, w.lower())  # 一律以小寫代替
+
+    for i, q in enumerate(quotes):
+        t = t.replace('[[{}]]'.format(i), q)
+
+    words = [w for w in t.split() if w.isalpha() or (not w.count('=') and not w.count('{')
+             and not w.count('}') and not w.startswith(',') and not w.startswith('.')
+             and not w.count('~') )]
+    return ' '.join(words)
 
 
 def tidify_wiki_zh(t):
@@ -241,7 +258,7 @@ def tidify_wiki_zh(t):
 
     if not t or len(t) < 10:
         return u''
-    text = sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
+    text = re.sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
     t = ''
     level = 0
     start = 0
@@ -256,18 +273,19 @@ def tidify_wiki_zh(t):
                 start = i + 1
     t += text[start:]
 
-    t = sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
-    t = sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = sub(u'==參考資料==.*', '', t)
-    t = sub(u'==參考==.*', '', t)
-    t = sub(u'==延伸閱讀==.*', '', t)
-    t = sub(u'==外部鏈接==.*', '', t)
-    t = sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
+    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
+    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
+    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
+    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
+    t = re.sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
+    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
+    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
+    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
+    t = re.sub(u'==參考資料==.*', '', t)
+    t = re.sub(u'==參考==.*', '', t)
+    t = re.sub(u'==延伸閱讀==.*', '', t)
+    t = re.sub(u'==外部鏈接==.*', '', t)
+    t = re.sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ').replace('&nbsp;', ' ')
     t = t.replace(', ', ' ').replace('. ', ' ').replace('(', ' ').replace(')', ' ') \
          .replace('!', ' ').replace('?', ' ').replace(';', ' ').replace(': ', ' ') \
@@ -320,7 +338,7 @@ def tidify_wiki_ja(t):
 
     if not t or len(t) < 10:
         return u''
-    text = sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
+    text = re.sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
     t = ''
     level = 0
     start = 0
@@ -335,16 +353,17 @@ def tidify_wiki_ja(t):
                 start = i + 1
     t += text[start:]
 
-    t = sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
-    t = sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = sub(u'==注==.*', '', t)
-    t = sub(u'==参照==.*', '', t)
-    t = sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
+    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
+    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
+    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
+    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
+    t = re.sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
+    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
+    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
+    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
+    t = re.sub(u'==注==.*', '', t)
+    t = re.sub(u'==参照==.*', '', t)
+    t = re.sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
     t = t.replace(', ', u'、').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
@@ -389,16 +408,17 @@ def tidify_wiki_ko(t):
                 start = i + 1
     t += text[start:]
 
-    t = sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
-    t = sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = sub(u'==각주==.*', '', t)
-    t = sub(u'==바깥 고리==.*', '', t)
-    t = sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
+    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
+    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
+    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
+    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
+    t = re.sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
+    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
+    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
+    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
+    t = re.sub(u'==각주==.*', '', t)
+    t = re.sub(u'==바깥 고리==.*', '', t)
+    t = re.sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
     t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
@@ -443,7 +463,7 @@ def parse_article_en(title, identical, the_id, text, buffer, temp_collect):
     """
 
     text = text
-    links = set(findall('\[\[([^#]+?)[\]\|#]', text))
+    links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     # 所有的 [[...]] 會分為三類
     # 'category:' 開頭的放在 cat 中
     # 'xxx:' 開頭的會丟掉
@@ -499,7 +519,7 @@ def parse_article_zh(title, identical, the_id, text, buffer, temp_collect):
         text = conv2tw(text).lower()  # 中文仍然會夾雜英文，所以 lower() 是必須的
     else:
         text = ''
-    links = set(findall('\[\[([^#]+?)[\]\|#]', text))
+    links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     cat = [x[9:].lower() for x in links if x[:9] == u'category:']
     related = [x.lower() for x in links if x.find(':') < 0]
 
@@ -546,7 +566,7 @@ def parse_article_ja(title, identical, the_id, text, buffer, temp_collect):
     """
 
     text = text.lower()
-    links = set(findall('\[\[([^#]+?)[\]\|#]', text))
+    links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     cat = [x[9:].lower() for x in links if x[:9] == u'category:']
     related = [x.lower() for x in links if x.find(':') < 0]
 
@@ -592,7 +612,7 @@ def parse_article_ko(title, identical, the_id, text, buffer, temp_collect):
     """
 
     text = text.lower()
-    links = set(findall('\[\[([^#]+?)[\]\|#]', text))
+    links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     cat = [x[9:].lower() for x in links if x[:9] == u'category:']
     related = [x.lower() for x in links if x.find(':') < 0]
 
@@ -638,7 +658,7 @@ def parse_article_de(title, identical, the_id, text, buffer, temp_collect):
     """
 
     text = text.lower()
-    links = set(findall('\[\[([^#]+?)[\]\|#]', text))
+    links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     cat = [x[9:].lower() for x in links if x[:9] == u'category:']
     related = [x.lower() for x in links if x.find(':') < 0]
 

@@ -1,8 +1,18 @@
 # -*- coding: utf-8 -*-
+from __future__ import unicode_literals
 from socket import setdefaulttimeout
 from bs4 import BeautifulSoup
-from urllib import urlretrieve
-from urllib2 import urlopen
+from six import string_types
+try:
+    from urllib import urlretrieve
+except ImportError:
+    from urllib.request import urlretrieve
+try:
+    from urllib2 import urlopen
+    from urllib2 import URLError
+except ImportError:
+    from urllib.request import urlopen
+    from urllib.error import URLError
 from argparse import ArgumentParser
 from pymongo import MongoClient
 import os
@@ -15,55 +25,14 @@ from bz2 import BZ2File
 from xml import sax
 from multiprocessing import Pool
 import logging as log
-from pyknp import Juman
-from zhconvert import ZHConvert, conv2tw
+from preprocess import zh_segment, ja_segment, to_half_word, remove_reference_or_internal
+from preprocess import remove_image_and_file, remove_ref_or_tags, remove_double_bracket
+from preprocess import remove_title_and_parenth, remove_quotes_and_punct, conv2tw
+from preprocess import remove_private_use_area
 
-zh = ZHConvert('http://localhost:9998/pos?wsdl', 'http://localhost:9999/seg?wsdl')
-ja = Juman()
 MongoURL = 'mongodb://localhost/NLP'
 # default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
 setdefaulttimeout(30)
-
-
-def zh_segment(text):
-    """
-    為了讓 word segmentation function 可替換，需要有共同的interface。
-    所有的 word segmentation，統一以空白字元作為斷詞符號。
-    輸入是 "今天天氣不錯" --> 輸出是 "今天 天氣 不 錯"。
-    所以 zh_segment(u'今天天氣不錯').split() --> [u'今天', u'天氣', u'不', u'錯']
-    如果未來要替換 segmenter，只需要修改這三個函式，讓輸出符合規格即可
-    """
-    if len(text) < 10:
-        return None
-    try:
-        seg = zh.tw_segment(text)
-    except:
-        return None
-    if seg is None:
-        return None
-    return ' '.join(seg)
-
-
-def ja_segment(text):
-    seg_text = []
-    for sent in text.split(u'。'):
-        try:
-            seg = ja.analysis(sent)
-            seg_text.append(' '.join([morph.midasi for morph in seg]))
-        except:
-            with open('log.txt', 'wa') as f:
-                f.write(text.encode('utf8') + '\n')
-    text = ' '.join(seg_text)
-    if len(text) < 10:
-        return None
-    return text
-
-
-def to_half_word(text):
-    '''Transfer double-width character to single-width character.'''
-    return ''.join([chr(ord(ch) - 0xff00 + 0x20)
-                    if ord(ch) >= 0xff01 and ord(ch) <= 0xff5e else ch
-                    for ch in text])
 
 
 ######################################################################
@@ -81,14 +50,14 @@ def prepare_wiki_url(base_url):
 
     try:
         html = urlopen(base_url).read()
-    except:
+    except URLError:
         exit(1)  # 如果連網路都連不上，就不用作下去了
 
     bhtml = BeautifulSoup(html, 'lxml')
     # 我們只要抓檔名中包含 pages-articles 的檔案
-    tag_a = bhtml.find_all('a', {'href': re.compile('.*pages-articles\d.*bz2$')})
+    tag_a = bhtml.find_all('a', {'href': re.compile(r'.*pages-articles\d.*bz2$')})
     if len(tag_a) == 0:
-        tag_a = bhtml.find_all('a', {'href': re.compile('.*pages-articles\.xml\.bz2$')})
+        tag_a = bhtml.find_all('a', {'href': re.compile(r'.*pages-articles\.xml\.bz2$')})
     s = [tag.next.next.split() for tag in tag_a]
 
     href = np.array([tag['href'] for tag in tag_a], dtype=np.str)
@@ -108,6 +77,10 @@ def prepare_wiki_url(base_url):
     return({'href': href, 'date': date, 'size': size})
 
 
+start_time = dt.now()
+percent = 0
+
+
 def reporthook(count, block_size, total_size):
     """用來顯示下載進度的 callback function。
 
@@ -115,10 +88,6 @@ def reporthook(count, block_size, total_size):
     """
 
     global start_time, percent
-    if count == 0:
-        start_time = dt.now()
-        percent = 0
-        return
     size = int(count * block_size / 1048576.0)
     new_percent = min(int(count * block_size * 100 / total_size), 100)
     # 只有下載進度前進1%時才會印訊息
@@ -171,10 +140,10 @@ def download_wiki(base_url, urlData):
             try:
                 urlretrieve(base_url + fn, fn, reporthook)
                 os.utime(fn, (mktime(d.timetuple()),) * 2)
-            except:
-                None  # just skip this file
+            except URLError:
+                pass  # just skip this file
 
-    log.warn('Downloading {} finished'.format(base_url))
+    log.warning('Downloading {} finished'.format(base_url))
 
 
 def tidify_wiki_en(t):
@@ -185,7 +154,7 @@ def tidify_wiki_en(t):
     """
 
     if not t or len(t) < 10:
-        return u''
+        return ''
     text = to_half_word(t).replace('\n', ' ')
     t = ''
     level = 0
@@ -202,33 +171,33 @@ def tidify_wiki_en(t):
                 start = i + 1
     t += text[start:]
 
-    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
-    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = re.sub('\[\[[^\]]*?/:.*?\]\]', '', t)          # delete [[AA:BB]]
-    t = re.sub('\[\[File:.*?\]\]', '', t)
-    t = re.sub('\[\[Category:.*?\]\]', '', t)
-    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = re.sub('==see also==.*', '', t)
-    t = re.sub('==references==.*', '', t)
-    t = re.sub('==further reading==.*', '', t)
-    t = re.sub('==external links==.*', '', t)
-    t = re.sub('=+[ \w]+?=+', '', t)                   # delete == tt ==
+    t = re.sub(r'\{\{.*?\}\}', '', t)                   # delete {{...}}
+    t = re.sub(r'<!--.*?-->', '', t)                    # delete <!--...-->
+    t = re.sub(r'<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
+    t = re.sub(r'<ref.*?ref>', '', t)                   # delete <ref>...</ref>
+    t = re.sub(r'\[\[[^\]]*?/:.*?\]\]', '', t)          # delete [[AA:BB]]
+    t = re.sub(r'\[\[File:.*?\]\]', '', t)
+    t = re.sub(r'\[\[Category:.*?\]\]', '', t)
+    t = re.sub(r'\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
+    t = re.sub(r'</?[^>]+?>', '', t)                    # delete <tag>
+    t = re.sub(r'\w+://(\w+\.){1,}\w+/?[^ ]*', '', t)    # delete http://....
+    t = re.sub(r'==see also==.*', '', t)
+    t = re.sub(r'==references==.*', '', t)
+    t = re.sub(r'==further reading==.*', '', t)
+    t = re.sub(r'==external links==.*', '', t)
+    t = re.sub(r'=+[ \w]+?=+', '', t)                   # delete == tt ==
     t = ''.join([ch for ch in t if ord(ch) < 0x2000])
     t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
     t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
          .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ').replace(':', ' ') \
          .replace("'''", ' ').replace('"', ' ').replace('-', ' ').replace('^', ' ') \
          .replace('*', ' ').replace('$', '').replace('/', ' ').replace('&nbsp', ' ') \
-         .replace(u'…', ' ').replace(u'´', '\'').replace("''", ' ')
-    t = re.sub('([A-Za-z]),([A-Za-z])', '\\1 , \\2', t)
-    t = re.sub('\\[\w\^0-9]+', ' ', t)
-    t = re.sub('&[a-z]+', ' ', t)
-    t = re.sub('([a-z])([\.,])', '\\1 \\2', t)
-    t = re.sub(' [0-9][0-9,\-\.\%\^]* ', ' #NUM ', t)
+         .replace('…', ' ').replace('´', '\'').replace("''", ' ')
+    t = re.sub(r'([A-Za-z]),([A-Za-z])', '\\1 , \\2', t)
+    t = re.sub(r'\\[\w\^0-9]+', ' ', t)
+    t = re.sub(r'&[a-z]+', ' ', t)
+    t = re.sub(r'([a-z])([\.,])', '\\1 \\2', t)
+    t = re.sub(r' [0-9][0-9,\-\.\%\^]* ', ' #NUM ', t)
 
     quotes = re.findall('\[\[.*?\]\]', t)
     for i, q in enumerate(quotes):
@@ -255,78 +224,28 @@ def tidify_wiki_zh(t):
     t: 必須是 unicode string。
        如果不是，可以用 unicode(text, errors='ignore') 來轉換成 unicode string。
     """
-
     if not t or len(t) < 10:
-        return u''
-    text = re.sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
-    t = ''
-    level = 0
-    start = 0
-    for i in range(len(text)):
-        if text[i] == '{':
-            if level == 0:
-                t += text[start:i]
-            level += 1
-        elif text[i] == '}':
-            level -= 1
-            if level == 0:
-                start = i + 1
-    t += text[start:]
-
-    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
-    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = re.sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
-    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = re.sub(u'==參考資料==.*', '', t)
-    t = re.sub(u'==參考==.*', '', t)
-    t = re.sub(u'==延伸閱讀==.*', '', t)
-    t = re.sub(u'==外部鏈接==.*', '', t)
-    t = re.sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
-    t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ').replace('&nbsp;', ' ')
-    t = t.replace(', ', ' ').replace('. ', ' ').replace('(', ' ').replace(')', ' ') \
-         .replace('!', ' ').replace('?', ' ').replace(';', ' ').replace(': ', ' ') \
-         .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ") \
-         .replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
-         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
-         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
-         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
-         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
-    t = t.replace(u'，', u' ').replace(u'。', u' ').replace(u'；', u' ') \
-         .replace(u'：', u' ') \
-         .replace(u'、', u' ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ') \
-         .replace(u'」', ' ').replace(u'[[', '[ [').replace(u']]', '] ]') \
-         .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ').replace(u'）', ' ') \
-         .replace(u'！', u' ').replace(u'？', ' ').replace(u'《', ' ').replace(u'》', ' ') \
-         .replace(u'·', ' ')
+        return ''
+    t = remove_private_use_area(t)
+    t = to_half_word(t)
+    t = remove_reference_or_internal(t)
+    t = remove_image_and_file(t)
+    t = remove_ref_or_tags(t)
+    t = remove_double_bracket(t)
+    t = remove_title_and_parenth(t)
+    t = remove_quotes_and_punct(t)
+    quotes = re.findall('\[\[.*?\]\]', t)
+    for i, q in enumerate(quotes):
+        t = t.replace(q, ' ##{}## '.format(i))
     t = zh_segment(t)
     if t is None or len(t) <= 10:
         return ''
-    t = to_half_word(t).split()
-    if len(t) <= 1:
+    for i, q in enumerate(quotes):
+        t = t.replace('##{}##'.format(i), q.replace('[', ' ').replace(']', ' '))
+    words = t.split()
+    if len(words) <= 1:
         return ''
-    text = []
-    tmp = []
-    inside_bracket = False
-    for i in range(len(t) - 1):
-        if t[i] == '[' and t[i+1] == '[':
-            inside_bracket = True
-        if inside_bracket and t[i] == ']' and t[i+1] == ']':
-            inside_bracket = False
-            text.append(''.join(tmp))
-            tmp = []
-        if t[i] == '[' or t[i] == ']':
-            continue
-        if inside_bracket:
-            tmp.append(t[i])
-        else:
-            text.append(t[i])
-    text.append(t[-1])
-    return ' '.join(text)
+    return ' '.join(words)
 
 
 def tidify_wiki_ja(t):
@@ -335,106 +254,28 @@ def tidify_wiki_ja(t):
     t: 必須是 unicode string。
        如果不是，可以用 unicode(text, errors='ignore') 來轉換成 unicode string。
     """
-
     if not t or len(t) < 10:
-        return u''
-    text = re.sub(u'([^。！：」？])\n', u'\\1。', t).replace('\n', ' ')
-    t = ''
-    level = 0
-    start = 0
-    for i in range(len(text)):
-        if text[i] == '{':
-            if level == 0:
-                t += text[start:i]
-            level += 1
-        elif text[i] == '}':
-            level -= 1
-            if level == 0:
-                start = i + 1
-    t += text[start:]
-
-    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
-    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = re.sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
-    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = re.sub(u'==注==.*', '', t)
-    t = re.sub(u'==参照==.*', '', t)
-    t = re.sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
-    t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
-    t = t.replace(', ', u'、').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
-         .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
-         .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
-         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
-         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
-         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
-         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
-    t = t.replace(u'，', u'、') \
-         .replace(u'、', u'、').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ').replace(u'」', ' ') \
-         .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ( ').replace(u'）', ' ) ') \
-         .replace(u'！', u' ! ').replace(u'？', ' ? ').replace(u'《', ' ').replace(u'》', ' ').replace(u'·', ' ')
-    t = t.replace('[', '').replace(']', '').replace(' ', '')
-    t = ja_segment(t)
-    if t is None or len(t) == 0:
         return ''
-    return to_half_word(t)
-
-
-def tidify_wiki_ko(t):
-    """整理韓文wiki的文章內容
-
-    t: 必須是 unicode string。
-       如果不是，可以用 unicode(text, errors='ignore') 來轉換成 unicode string。
-    """
-
-    if not t or len(t) < 10:
-        return u''
-    text = t.replace('\n', ' ')
-    t = ''
-    level = 0
-    start = 0
-    for i in range(len(text)):
-        if text[i] == '{':
-            if level == 0:
-                t += text[start:i]
-            level += 1
-        elif text[i] == '}':
-            level -= 1
-            if level == 0:
-                start = i + 1
-    t += text[start:]
-
-    t = re.sub('\{\{.*?\}\}', '', t)                   # delete {{...}}
-    t = re.sub('<!--.*?-->', '', t)                    # delete <!--...-->
-    t = re.sub('<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = re.sub('<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = re.sub('\[\[[^\]]*?:.*?\]\]', '', t)           # delete [[AA:BB]]
-    t = re.sub('\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = re.sub('</?[^>]+?>', '', t)                    # delete <tag>
-    t = re.sub('\w+://(\w+\.){1,}\w+/[^ ]*', '', t)    # delete http://....
-    t = re.sub(u'==각주==.*', '', t)
-    t = re.sub(u'==바깥 고리==.*', '', t)
-    t = re.sub(u'=+[ \w]+?=+', '', t)                   # delete == tt ==
-    t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
-    t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
-         .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ; ').replace(':', ' : ') \
-         .replace("'''", ' ').replace("''", ' ').replace('"', ' ').replace(" '", " ").replace("' ", " ") \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace(u'\u2010', '-') \
-         .replace(u'\u2012', '-').replace(u'\u2013', '-').replace(u'\u2014', '-').replace(u'\u2015', '-') \
-         .replace(u'\u2018', ' ').replace(u'\u2019', ' ').replace(u'\u201a', ' ') \
-         .replace(u'\u201b', ' ').replace(u'\u201c', ' ').replace(u'\u201d', ' ') \
-         .replace(u'\u201e', ' ').replace(u'\u201f', ' ').replace(u'\u2024', ' . ')
-    t = t.replace(u'，', u' , ').replace(u'。', u' . ').replace(u'；', u' ; ').replace(u'：', u' : ') \
-         .replace(u'、', u' , ').replace(u'“', ' ').replace(u'”', ' ').replace(u'「', ' ').replace(u'」', ' ') \
-         .replace(u'『', u' ').replace(u'』', ' ').replace(u'（', ' ( ').replace(u'）', ' ) ') \
-         .replace(u'！', u' ! ').replace(u'？', ' ? ').replace(u'《', ' ').replace(u'》', ' ').replace(u'·', ' ')
-    # 韓文的segmenter遇到Unicode中的high surrogate codes會當掉
-    t = u''.join([ch for ch in t if ord(ch) < 0xD800 and ord(ch) > 0xDB7F])
-    return t
+    t = remove_private_use_area(t)
+    t = to_half_word(t)
+    t = remove_reference_or_internal(t)
+    t = remove_image_and_file(t)
+    t = remove_ref_or_tags(t)
+    t = remove_double_bracket(t)
+    t = remove_title_and_parenth(t)
+    t = remove_quotes_and_punct(t)
+    quotes = re.findall('\[\[.*?\]\]', t)
+    for i, q in enumerate(quotes):
+        t = t.replace(q, ' ##{}## '.format(i))
+    t = ja_segment(t)
+    if t is None or len(t) <= 10:
+        return ''
+    for i, q in enumerate(quotes):
+        t = t.replace('##{}##'.format(i), q.replace('[', ' ').replace(']', ' '))
+    words = t.split()
+    if len(words) <= 1:
+        return ''
+    return ' '.join(words)
 
 
 parse_article = {}
@@ -468,33 +309,33 @@ def parse_article_en(title, identical, the_id, text, buffer, temp_collect):
     # 'category:' 開頭的放在 cat 中
     # 'xxx:' 開頭的會丟掉
     # 其他的會放在 related 中
-    cat = [x[9:] for x in links if x[:9] == u'category:']
+    cat = [x[9:] for x in links if x[:9].lower() == 'category:']
     related = [x for x in links if x.find(':') < 0]
 
     # 準備要放進 MongoDB 的資料
     data = {}
     # title 中的 (...) 要刪除
     title = (title[:title.find('(')] if title.find('(') > -1 else title).strip()
-    data[u'title'] = title
+    data['title'] = title
     if identical:
-        data[u'identical'] = identical
+        data['identical'] = identical
     if the_id:
-        data[u'id'] = int(the_id)
+        data['id'] = int(the_id)
     if len(cat):
-        data[u'categories'] = cat     # cat是所屬的category
+        data['categories'] = cat     # cat是所屬的category
     if len(related):
-        data[u'related'] = related    # related是文章中出現的相關連結
-    if title[:9] == u'category:':
-        data[u'title'] = title[9:]    # 如果是category，只保留名稱，不保留開頭的'category:'
-        data[u'isCategory'] = True
-        i = text.find('{{cat main|')  # 如果有對應的main article，記錄在這裡
+        data['related'] = related    # related是文章中出現的相關連結
+    if title[:9].lower() == 'category:':
+        data['title'] = title[9:]    # 如果是category，只保留名稱，不保留開頭的'category:'
+        data['isCategory'] = True
+        i = text.lower().find('{{cat main|')  # 如果有對應的main article，記錄在這裡
         if i > -1:
-            j = text.find('}}', i)
-            data[u'mainArticle'] = text[(i + 11):j]
+            j = text.lower().find('}}', i)
+            data['mainArticle'] = text[(i + 11):j]
     else:
-        data[u'isArticle'] = True
-        if text[:9] != u'#redirect' and text.find('{{disambig') == -1:
-            data[u'text'] = tidify_wiki_en(text)
+        data['isArticle'] = True
+        if text[:9].lower() != '#redirect' and text.lower().find('{{disambig') == -1:
+            data['text'] = tidify_wiki_en(text)
 
     buffer.append(data)
     if len(buffer) >= 100:
@@ -514,38 +355,37 @@ def parse_article_zh(title, identical, the_id, text, buffer, temp_collect):
     buffer: 收集處理好的文章，每100筆會寫入到MongoDB一次
     temp_collect: MongoDB的collection物件
     """
-
-    if isinstance(text, basestring) and len(text) > 0:
-        text = conv2tw(text).lower()  # 中文仍然會夾雜英文，所以 lower() 是必須的
+    if isinstance(text, string_types) and len(text) > 0:
+        text = conv2tw(text)  # 中文仍然會夾雜英文，所以 lower() 是必須的
     else:
         text = ''
     links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
-    cat = [x[9:].lower() for x in links if x[:9] == u'category:']
-    related = [x.lower() for x in links if x.find(':') < 0]
+    cat = [x[9:] for x in links if x[:9].lower() == 'category:']
+    related = [x for x in links if x.find(':') < 0]
 
     data = {}
-    title = (title[:title.find('(')] if title.find('(') > -1 else title).lower().strip()
+    title = (title[:title.find('(')] if title.find('(') > -1 else title).strip()
     title = conv2tw(title)
-    data[u'title'] = title
+    data['title'] = title
     if identical:
-        data[u'identical'] = identical.lower()
+        data['identical'] = identical
     if the_id:
-        data[u'id'] = int(the_id)
+        data['id'] = int(the_id)
     if len(cat):
-        data[u'categories'] = cat
+        data['categories'] = cat
     if len(related):
-        data[u'related'] = related
-    if title[:9] == u'category:':
-        data[u'title'] = title[9:]
-        data[u'isCategory'] = True
-        i = text.find('{{cat main|')
+        data['related'] = related
+    if title[:9].lower() == 'category:':
+        data['title'] = title[9:]
+        data['isCategory'] = True
+        i = text.lower().find('{{cat main|')
         if i > -1:
             j = text.find('}}', i)
-            data[u'mainArticle'] = text[(i + 11):j].lower()
+            data['mainArticle'] = text[(i + 11):j]
     else:
-        data[u'isArticle'] = True
-        if text[:9] != u'#redirect' and text[:4] != u'#重定向' and text.find('{{disambig') == -1:
-            data[u'text'] = tidify_wiki_zh(text)
+        data['isArticle'] = True
+        if text[:9].lower() != '#redirect' and text[:4] != '#重定向' and text.lower().find('{{disambig') == -1:
+            data['text'] = tidify_wiki_zh(text)
 
     buffer.append(data)
     if len(buffer) >= 100:
@@ -565,123 +405,33 @@ def parse_article_ja(title, identical, the_id, text, buffer, temp_collect):
     temp_collect: MongoDB的collection物件
     """
 
-    text = text.lower()
+    text = text
     links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
-    cat = [x[9:].lower() for x in links if x[:9] == u'category:']
-    related = [x.lower() for x in links if x.find(':') < 0]
+    cat = [x[9:] for x in links if x[:9].lower() == 'category:']
+    related = [x for x in links if x.find(':') < 0]
 
     data = {}
-    title = (title[:title.find('(')] if title.find('(') > -1 else title).lower().strip()
-    data[u'title'] = title
+    title = (title[:title.find('(')] if title.find('(') > -1 else title).strip()
+    data['title'] = title
     if identical:
-        data[u'identical'] = identical.lower()
+        data['identical'] = identical
     if the_id:
-        data[u'id'] = int(the_id)
+        data['id'] = int(the_id)
     if len(cat):
-        data[u'categories'] = cat
+        data['categories'] = cat
     if len(related):
-        data[u'related'] = related
-    if title[:9] == u'category:':
-        data[u'title'] = title[9:]
-        data[u'isCategory'] = True
-        i = text.find('{{cat main|')
+        data['related'] = related
+    if title[:9].lower() == 'category:':
+        data['title'] = title[9:]
+        data['isCategory'] = True
+        i = text.lower().find('{{cat main|')
         if i > -1:
             j = text.find('}}', i)
-            data[u'mainArticle'] = text[(i + 11):j].lower()
+            data['mainArticle'] = text[(i + 11):j]
     else:
-        data[u'isArticle'] = True
-        if text[:9] != u'#redirect':
-            data[u'text'] = tidify_wiki_ja(text)
-
-    buffer.append(data)
-    if len(buffer) >= 100:
-        temp_collect.insert_many(buffer)
-        del buffer[:]
-
-
-@register_article_parser('ko')
-def parse_article_ko(title, identical, the_id, text, buffer, temp_collect):
-    """在wiki XML檔案遇到</text>時，會將收集到的資訊傳入此function。
-
-    title: article/category 的標題
-    identical: 重新導向的主題
-    the_id: wikipedia內部的id
-    text: 文章內容
-    buffer: 收集處理好的文章，每100筆會寫入到MongoDB一次
-    temp_collect: MongoDB的collection物件
-    """
-
-    text = text.lower()
-    links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
-    cat = [x[9:].lower() for x in links if x[:9] == u'category:']
-    related = [x.lower() for x in links if x.find(':') < 0]
-
-    data = {}
-    title = (title[:title.find('(')] if title.find('(') > -1 else title).lower().strip()
-    data[u'title'] = title
-    if identical:
-        data[u'identical'] = identical.lower()
-    if the_id:
-        data[u'id'] = int(the_id)
-    if len(cat):
-        data[u'categories'] = cat
-    if len(related):
-        data[u'related'] = related
-    if title[:9] == u'category:':
-        data[u'title'] = title[9:]
-        data[u'isCategory'] = True
-        i = text.find('{{cat main|')
-        if i > -1:
-            j = text.find('}}', i)
-            data[u'mainArticle'] = text[(i + 11):j].lower()
-    else:
-        data[u'isArticle'] = True
-        if text[:9] != u'#redirect':
-            data[u'text'] = tidify_wiki_ko(text)
-
-    buffer.append(data)
-    if len(buffer) >= 100:
-        temp_collect.insert_many(buffer)
-        del buffer[:]
-
-
-@register_article_parser('de')
-def parse_article_de(title, identical, the_id, text, buffer, temp_collect):
-    """在wiki XML檔案遇到</text>時，會將收集到的資訊傳入此function。
-
-    title: article/category 的標題
-    identical: 重新導向的主題
-    the_id: wikipedia內部的id
-    text: 文章內容
-    buffer: 收集處理好的文章，每100筆會寫入到MongoDB一次
-    temp_collect: MongoDB的collection物件
-    """
-
-    text = text.lower()
-    links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
-    cat = [x[9:].lower() for x in links if x[:9] == u'category:']
-    related = [x.lower() for x in links if x.find(':') < 0]
-
-    data = {}
-    title = (title[:title.find('(')] if title.find('(') > -1 else title).lower().strip()
-    data[u'title'] = title.lower()
-    if identical:
-        data[u'identical'] = identical.lower()
-    if the_id:
-        data[u'id'] = int(the_id)
-    if len(cat):
-        data[u'categories'] = cat
-    if len(related):
-        data[u'related'] = related
-    if title[:9] == u'category:':
-        data[u'title'] = title[9:]
-        data[u'isCategory'] = True
-        i = text.find('{{cat main|')
-        if i > -1:
-            j = text.find('}}', i)
-            data[u'mainArticle'] = text[(i + 11):j].lower()
-    else:
-        data[u'isArticle'] = True
+        data['isArticle'] = True
+        if text[:9].lower() != '#redirect':
+            data['text'] = tidify_wiki_ja(text)
 
     buffer.append(data)
     if len(buffer) >= 100:
@@ -716,7 +466,7 @@ class xmlHandler(sax.ContentHandler):
         elif name == 'id' and not self.id:
             self.id = self.content
         elif name == 'text':
-            if self.title.find(':') < 0 or self.title[:9] == u'Category:':
+            if self.title.find(':') < 0 or self.title[:9] == 'Category:':
                 self.text = self.content
                 self.parse(self.title, self.identical, self.id, self.text, self.buffer,
                            self.temp_collect)
@@ -757,7 +507,7 @@ def parse_wiki(urlData, worker):
     """
 
     new_collect_name = urlData['href'][0][:2] + 'wiki'
-    tmp_collect_name = urlData['href'][0][:2] + 'wiki-' + str(dt.now().date())
+    tmp_collect_name = urlData['href'][0][:2] + 'wiki-temp'
     back_collect_name = tmp_collect_name + '-backup'
 
     # 無條件刪除 temp_collect
@@ -865,7 +615,7 @@ def wiki_downloader(language, use_local_file, worker):
 
 
 if __name__ == '__main__':
-    supported_lang = ('en', 'zh', 'de', 'ja', 'ko')
+    supported_lang = ('en', 'zh', 'ja')
     parser = ArgumentParser(description='Download wiki articles and store to MongoDb')
     parser.add_argument('language', metavar='LANG', type=str, nargs='+',
                         help='Which language of wikipedia to be downloaded: {}.'

@@ -21,12 +21,13 @@ def zh_segment(text):
     while len(text):
         if len(text) > 1000:
             i = text.find(' ', 1000)
+            if i < 0:
+                i = len(text)
         else:
             i = len(text)
         try:
             out_text.extend(zh.tw_segment(text[:(i + 1)]))
         except:
-            print(text[:(i + 1)])
             raise
         text = text[(i + 1):]
     return ' '.join(out_text)
@@ -107,6 +108,7 @@ def remove_ref_or_tags(text):
     text = re.sub('\[[Hh]ttp.*?\]', '', text, flags=re.DOTALL)
     text = re.sub('<[Rr]ef[^/]*?/>', '', text, flags=re.DOTALL)
     text = re.sub('<[Rr]ef.*?</[Rr]ef>', '', text, flags=re.DOTALL)
+    text = re.sub('<[Nn]oinclude.*?</[Nn]oinclude>', '', text, flags=re.DOTALL)
     text = re.sub('<!--.*?-->', '', text, flags=re.DOTALL)
     text = re.sub('([Hh]ttp|[Hh]ttps|[Ff]tp|[Ff]tps)://[\w\.\?=_/-]+', '', text)
     return text

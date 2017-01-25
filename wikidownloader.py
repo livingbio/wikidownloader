@@ -15,6 +15,7 @@ except ImportError:
     from urllib.error import URLError
 from argparse import ArgumentParser
 from pymongo import MongoClient
+from pymongo.errors import CollectionInvalid
 import os
 from sys import exit
 import re
@@ -302,7 +303,9 @@ def parse_article_en(title, identical, the_id, text, buffer, temp_collect):
     buffer: 收集處理好的文章，每100筆會寫入到MongoDB一次
     temp_collect: MongoDB的collection物件
     """
-
+    global exist_id
+    if int(the_id) in exist_id:
+        return
     text = text
     links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     # 所有的 [[...]] 會分為三類
@@ -355,6 +358,9 @@ def parse_article_zh(title, identical, the_id, text, buffer, temp_collect):
     buffer: 收集處理好的文章，每100筆會寫入到MongoDB一次
     temp_collect: MongoDB的collection物件
     """
+    global exist_id
+    if int(the_id) in exist_id:
+        return
     if isinstance(text, string_types) and len(text) > 0:
         text = conv2tw(text)  # 中文仍然會夾雜英文，所以 lower() 是必須的
     else:
@@ -404,7 +410,9 @@ def parse_article_ja(title, identical, the_id, text, buffer, temp_collect):
     buffer: 收集處理好的文章，每100筆會寫入到MongoDB一次
     temp_collect: MongoDB的collection物件
     """
-
+    global exist_id
+    if int(the_id) in exist_id:
+        return
     text = text
     links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     cat = [x[9:] for x in links if x[:9].lower() == 'category:']
@@ -502,6 +510,9 @@ def wiki_xml_parser(args):
     return None
 
 
+exist_id = set()
+
+
 def parse_wiki(urlData, worker):
     """For all xml files we downloaded, parse them and store data on Mongodb.
     """
@@ -511,11 +522,20 @@ def parse_wiki(urlData, worker):
     back_collect_name = tmp_collect_name + '-backup'
 
     # 無條件刪除 temp_collect
+    exist_id.clear()
     temp_collect = MongoClient(MongoURL)['NLP'][tmp_collect_name]
     try:
-        temp_collect.drop()
-    except:
-        None
+        n = 0
+        for it in temp_collect.find({}, {'id': True}):
+            if it['id'] in exist_id:
+                temp_collect.delete_one({'_id': it['_id']})
+                n += 1
+            else:
+                exist_id.add(it['id'])
+        print('delete {} redundant items'.format(n))
+        print('found {} existing ids'.format(len(exist_id)))
+    except CollectionInvalid:
+        pass
 
     if worker <= 1:
         # 單個process時，就依序作
@@ -533,13 +553,13 @@ def parse_wiki(urlData, worker):
     # 將 'enwiki' 改名成 'enwiki-2016-04-16-backup'
     try:
         current_collect.rename(back_collect_name)
-    except:
-        None
+    except CollectionInvalid:
+        pass
     # 將 'enwiki-2016-04-16' 改名成 'enwiki'
     try:
         temp_collect.rename(new_collect_name)
-    except:
-        None
+    except CollectionInvalid:
+        pass
 
     # 自動建立index，包含 title/id/isCategory/identical
     new_collect = MongoClient(MongoURL)['NLP'][new_collect_name]

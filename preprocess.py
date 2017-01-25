@@ -82,6 +82,10 @@ def remove_reference_or_internal(text):
     index.append(text.find('==注釋=='))
     index.append(text.find('==注=='))
     index.append(text.find('==参照=='))
+    index.append(text.find('==脚注=='))
+    index.append(text.find('==関連項目=='))
+    index.append(text.find('==外部リンク=='))
+    index.append(text.find('==內部リンク=='))
     index = [i for i in index if i > 0]
     if len(index) == 0:
         return text

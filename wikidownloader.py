@@ -29,7 +29,7 @@ import logging as log
 from preprocess import zh_segment, ja_segment, to_half_word, remove_reference_or_internal
 from preprocess import remove_image_and_file, remove_ref_or_tags, remove_double_bracket
 from preprocess import remove_title_and_parenth, remove_quotes_and_punct, conv2tw
-from preprocess import remove_private_use_area
+from preprocess import remove_private_use_area, isKatakana
 
 MongoURL = 'mongodb://localhost/NLP'
 # default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
@@ -234,7 +234,7 @@ def tidify_wiki_zh(t):
     t = remove_ref_or_tags(t)
     t = remove_double_bracket(t)
     t = remove_title_and_parenth(t)
-    t = remove_quotes_and_punct(t)
+    t = remove_quotes_and_punct(t).replace('\n', ' ')
     quotes = re.findall('\[\[.*?\]\]', t)
     for i, q in enumerate(quotes):
         t = t.replace(q, ' ##{}## '.format(i))
@@ -265,18 +265,14 @@ def tidify_wiki_ja(t):
     t = remove_double_bracket(t)
     t = remove_title_and_parenth(t)
     t = remove_quotes_and_punct(t)
-    quotes = re.findall('\[\[.*?\]\]', t)
-    for i, q in enumerate(quotes):
-        t = t.replace(q, ' ##{}## '.format(i))
-    t = ja_segment(t)
+    t = t.replace('[', ' ').replace(']', ' ')
+    t = re.sub(r'([A-Za-z][A-Za-z0-9\.]?) ([A-Za-z0-9\.])', '\\1_\\2', t)
+    t = re.sub(r'([A-Za-z][A-Za-z0-9\.]?) ([A-Za-z0-9\.])', '\\1_\\2', t)
+    t = ja_segment(t.replace(' ', ''))
     if t is None or len(t) <= 10:
         return ''
-    for i, q in enumerate(quotes):
-        t = t.replace('##{}##'.format(i), q.replace('[', ' ').replace(']', ' '))
-    words = t.split()
-    if len(words) <= 1:
-        return ''
-    return ' '.join(words)
+    t = t.replace(' ・ ', '・')
+    return t
 
 
 parse_article = {}

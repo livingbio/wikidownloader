@@ -1,10 +1,10 @@
+# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 import re
 from stanford_segmenter import Segmenter, conv2tw
 from pyknp import Juman
 
-ja = Juman()
-zh = Segmenter()
+cache_seg = dict()
 
 
 def zh_segment(text):
@@ -15,6 +15,9 @@ def zh_segment(text):
     所以 zh_segment('今天天氣不錯').split() --> ['今天', '天氣', '不', '錯']
     如果未來要替換 segmenter，只需要修改這三個函式，讓輸出符合規格即可
     """
+    if 'zh' not in cache_seg:
+        cache_seg['zh'] = Segmenter()
+    zh = cache_seg['zh']
     if len(text) < 10:
         return None
     out_text = []
@@ -34,18 +37,23 @@ def zh_segment(text):
 
 
 def ja_segment(text):
+    if 'ja' not in cache_seg:
+        cache_seg['ja'] = Juman()
+    ja = cache_seg['ja']
     seg_text = []
-    for sent in text.split('。'):
-        try:
-            seg = ja.analysis(sent)
-            seg_text.append(' '.join([morph.midasi for morph in seg]))
-        except:
-            with open('log.txt', 'wa') as f:
-                f.write(text.encode('utf8') + '\n')
+    for sent in text.split('\n'):
+        if len(sent) < 2:
+            continue
+        seg = ja.analysis(sent)
+        seg_text.append(' '.join([morph.midasi for morph in seg]))
     text = ' '.join(seg_text)
     if len(text) < 10:
         return None
     return text
+
+
+def isKatakana(char):
+    return ord(char) >= 0x30A0 and ord(char) <= 0x30FF
 
 
 def to_half_word(text):
@@ -84,8 +92,8 @@ def remove_reference_or_internal(text):
 def remove_image_and_file(text):
     new_blocks = []
     delete_next = False
-    for item in re.split('\[\[([Ii]mage|[Cc]ategory|[Ff]ile):', text):
-        if item in ('Category', 'Image', 'File', 'category', 'image', 'file'):
+    for item in re.split('\[\[([Ii]mage|[Cc]ategory|[Ff]ile|ファイル):', text):
+        if item in ('Category', 'Image', 'File', 'category', 'image', 'file', 'ファイル'):
             delete_next = True
             level = 1
         elif delete_next:
@@ -169,9 +177,7 @@ _puncts = {
     ord(';'): ' ',
     ord('/'): ' ',
     ord('~'): ' ',
-    ord('-'): ' ',
     ord('\r'): ' ',
-    ord('\n'): ' ',
     0x2010: ' ',
     0x2012: ' ',
     0x2013: ' ',

@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 from socket import setdefaulttimeout
 from bs4 import BeautifulSoup
-from six import string_types
+from six import string_types, unichr
 try:
     from urllib import urlretrieve
 except ImportError:
@@ -237,12 +237,12 @@ def tidify_wiki_zh(t):
     t = remove_quotes_and_punct(t).replace('\n', ' ')
     quotes = re.findall('\[\[.*?\]\]', t)
     for i, q in enumerate(quotes):
-        t = t.replace(q, ' ##{}## '.format(i))
+        t = t.replace(q, unichr(i + 0x700))
     t = zh_segment(t)
     if t is None or len(t) <= 10:
         return ''
     for i, q in enumerate(quotes):
-        t = t.replace('##{}##'.format(i), q.replace('[', ' ').replace(']', ' '))
+        t = t.replace(unichr(i + 0x700), q.replace('[', ' ').replace(']', ' '))
     words = t.split()
     if len(words) <= 1:
         return ''

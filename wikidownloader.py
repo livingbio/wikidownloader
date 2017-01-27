@@ -271,7 +271,15 @@ def tidify_wiki_ja(t):
     t = ja_segment(t.replace(' ', ''))
     if t is None or len(t) <= 10:
         return ''
-    t = t.replace(' ・ ', '・')
+    i = 0
+    while t.find('・', i + 1) > 0:
+        i = t.find('・', i + 1)
+        if i > len(t) - 3 or i < 2:
+            continue
+        left = t[i - 2]
+        right = t[i + 2]
+        if isKatakana(left) and isKatakana(right):
+            t = t.replace(left + ' ・ ' + right, left + '・' + right)
     return t
 
 

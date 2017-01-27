@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+from __future__ import unicode_literals, print_function
 import re
 from stanford_segmenter import Segmenter, conv2tw
 from pyknp import Juman
@@ -44,8 +44,11 @@ def ja_segment(text):
     for sent in text.split('\n'):
         if len(sent) < 2:
             continue
-        seg = ja.analysis(sent)
-        seg_text.append(' '.join([morph.midasi for morph in seg]))
+        try:
+            seg = ja.analysis(sent)
+            seg_text.append(' '.join([morph.midasi for morph in seg]))
+        except IndexError:
+            seg_text.append(sent)
     text = ' '.join(seg_text)
     if len(text) < 10:
         return None

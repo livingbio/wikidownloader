@@ -188,7 +188,7 @@ def remove_ref_or_tags(text):
     text = re.sub('<[Rr]ef.*?</[Rr]ef>', '', text, flags=re.DOTALL)
     text = text.replace('<big>', '').replace('</big>', '')
     text = re.sub('<[Dd]iv.*</[Dd]iv>', '', text, flags=re.DOTALL)
-    text = re.sub('<[Gg]ellary.*</[Gg]ellary>', '', text, flags=re.DOTALL)
+    text = re.sub('<[Gg]allery.*</[Gg]allery>', '', text, flags=re.DOTALL)
     text = re.sub('<[Nn]oinclude.*?</[Nn]oinclude>', '', text, flags=re.DOTALL)
     text = re.sub('<!--.*?-->', '', text, flags=re.DOTALL)
     text = re.sub('([Hh]ttp|[Hh]ttps|[Ff]tp|[Ff]tps)://[\w\.\?=_/-]+', '', text)

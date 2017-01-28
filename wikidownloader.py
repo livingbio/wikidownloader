@@ -19,6 +19,7 @@ from pymongo.errors import CollectionInvalid
 import os
 from sys import exit
 import re
+import signal
 from datetime import datetime as dt
 from time import mktime, sleep
 import numpy as np
@@ -35,6 +36,11 @@ MongoURL = 'mongodb://localhost/NLP'
 # default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
 setdefaulttimeout(30)
 
+
+def signal_handler(signum, frame):
+    raise Exception('timeout happended!!')
+
+signal.signal(signal.SIGALRM, signal_handler)
 
 ######################################################################
 # Start of main program                                              #
@@ -443,7 +449,12 @@ def parse_article_ja(title, identical, the_id, text, buffer, temp_collect):
     else:
         data['isArticle'] = True
         if text[:9].lower() != '#redirect':
-            data['text'] = tidify_wiki_ja(text)
+            try:
+                signal.alarm(300)
+                data['text'] = tidify_wiki_ja(text)
+            except Exception:
+                print text
+                raise Exception('timeout!!')
 
     buffer.append(data)
     if len(buffer) >= 100:

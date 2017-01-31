@@ -118,6 +118,10 @@ def ja_segment(text):
     return text
 
 
+def clear_cache():
+    cache_seg.clear()
+
+
 def isKatakana(char):
     return ord(char) >= 0x30A0 and ord(char) <= 0x30FF
 
@@ -148,6 +152,7 @@ def remove_reference_or_internal(text):
     index.append(text.find('==注釋=='))
     index.append(text.find('==注=='))
     index.append(text.find('==参照=='))
+    index.append(text.find('==参考文献=='))
     index.append(text.find('==脚注=='))
     index.append(text.find('==関連項目=='))
     index.append(text.find('==外部リンク=='))

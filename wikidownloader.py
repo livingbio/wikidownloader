@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+from __future__ import unicode_literals, print_function
 from socket import setdefaulttimeout
 from bs4 import BeautifulSoup
 from six import string_types, unichr
@@ -15,7 +15,7 @@ except ImportError:
     from urllib.error import URLError
 from argparse import ArgumentParser
 from pymongo import MongoClient
-from pymongo.errors import CollectionInvalid
+from pymongo.errors import OperationFailure
 import os
 from sys import exit
 import re
@@ -30,7 +30,7 @@ import logging as log
 from preprocess import zh_segment, ja_segment, to_half_word, remove_reference_or_internal
 from preprocess import remove_image_and_file, remove_ref_or_tags, remove_double_bracket
 from preprocess import remove_title_and_parenth, remove_quotes_and_punct, conv2tw
-from preprocess import remove_private_use_area, isKatakana
+from preprocess import remove_private_use_area, isKatakana, clear_cache
 
 MongoURL = 'mongodb://localhost/NLP'
 # default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
@@ -449,12 +449,13 @@ def parse_article_ja(title, identical, the_id, text, buffer, temp_collect):
     else:
         data['isArticle'] = True
         if text[:9].lower() != '#redirect':
-            try:
-                signal.alarm(300)
-                data['text'] = tidify_wiki_ja(text)
-            except Exception:
-                print text
-                raise Exception('timeout!!')
+            for alarm_time in (2, 5, 10):
+                signal.alarm(alarm_time)
+                try:
+                    data['text'] = tidify_wiki_ja(text)
+                except Exception:
+                    clear_cache()
+            signal.alarm(0)
 
     buffer.append(data)
     if len(buffer) >= 100:
@@ -549,7 +550,7 @@ def parse_wiki(urlData, worker):
                 exist_id.add(it['id'])
         print('delete {} redundant items'.format(n))
         print('found {} existing ids'.format(len(exist_id)))
-    except CollectionInvalid:
+    except OperationFailure:
         pass
 
     if worker <= 1:
@@ -568,12 +569,12 @@ def parse_wiki(urlData, worker):
     # 將 'enwiki' 改名成 'enwiki-2016-04-16-backup'
     try:
         current_collect.rename(back_collect_name)
-    except CollectionInvalid:
+    except OperationFailure:
         pass
     # 將 'enwiki-2016-04-16' 改名成 'enwiki'
     try:
         temp_collect.rename(new_collect_name)
-    except CollectionInvalid:
+    except OperationFailure:
         pass
 
     # 自動建立index，包含 title/id/isCategory/identical

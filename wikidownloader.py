@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+from __future__ import unicode_literals, print_function
 from socket import setdefaulttimeout
 from bs4 import BeautifulSoup
-from six import string_types
+from six import string_types, unichr
 try:
     from urllib import urlretrieve
 except ImportError:
@@ -19,6 +19,7 @@ from pymongo.errors import OperationFailure
 import os
 from sys import exit
 import re
+import signal
 from datetime import datetime as dt
 from time import mktime, sleep
 import numpy as np
@@ -29,12 +30,17 @@ import logging as log
 from preprocess import zh_segment, ja_segment, to_half_word, remove_reference_or_internal
 from preprocess import remove_image_and_file, remove_ref_or_tags, remove_double_bracket
 from preprocess import remove_title_and_parenth, remove_quotes_and_punct, conv2tw
-from preprocess import remove_private_use_area, isKatakana, remove_nonlatin_words
+from preprocess import remove_private_use_area, isKatakana, clear_cache, remove_nonlatin_words
 
 MongoURL = 'mongodb://localhost/NLP'
 # default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
 setdefaulttimeout(30)
 
+
+def signal_handler(signum, frame):
+    raise Exception('timeout happended!!')
+
+signal.signal(signal.SIGALRM, signal_handler)
 
 ######################################################################
 # Start of main program                                              #
@@ -207,12 +213,12 @@ def tidify_wiki_zh(t):
     t = remove_quotes_and_punct(t).replace('\n', ' ')
     quotes = re.findall('\[\[.*?\]\]', t)
     for i, q in enumerate(quotes):
-        t = t.replace(q, ' ##{}## '.format(i))
+        t = t.replace(q, unichr(i + 0x700))
     t = zh_segment(t)
     if t is None or len(t) <= 10:
         return ''
     for i, q in enumerate(quotes):
-        t = t.replace('##{}##'.format(i), q.replace('[', ' ').replace(']', ' '))
+        t = t.replace(unichr(i + 0x700), q.replace('[', ' ').replace(']', ' '))
     words = t.split()
     if len(words) <= 1:
         return ''
@@ -241,7 +247,15 @@ def tidify_wiki_ja(t):
     t = ja_segment(t.replace(' ', ''))
     if t is None or len(t) <= 10:
         return ''
-    t = t.replace(' ・ ', '・')
+    i = 0
+    while t.find('・', i + 1) > 0:
+        i = t.find('・', i + 1)
+        if i > len(t) - 3 or i < 2:
+            continue
+        left = t[i - 2]
+        right = t[i + 2]
+        if isKatakana(left) and isKatakana(right):
+            t = t.replace(left + ' ・ ' + right, left + '・' + right)
     return t
 
 
@@ -405,7 +419,13 @@ def parse_article_ja(title, identical, the_id, text, buffer, temp_collect):
     else:
         data['isArticle'] = True
         if text[:9].lower() != '#redirect':
-            data['text'] = tidify_wiki_ja(text)
+            for alarm_time in (2, 5, 10):
+                signal.alarm(alarm_time)
+                try:
+                    data['text'] = tidify_wiki_ja(text)
+                except Exception:
+                    clear_cache()
+            signal.alarm(0)
 
     buffer.append(data)
     if len(buffer) >= 100:

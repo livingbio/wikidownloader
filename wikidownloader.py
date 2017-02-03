@@ -15,7 +15,7 @@ except ImportError:
     from urllib.error import URLError
 from argparse import ArgumentParser
 from pymongo import MongoClient
-from pymongo.errors import CollectionInvalid
+from pymongo.errors import OperationFailure
 import os
 from sys import exit
 import re
@@ -29,7 +29,7 @@ import logging as log
 from preprocess import zh_segment, ja_segment, to_half_word, remove_reference_or_internal
 from preprocess import remove_image_and_file, remove_ref_or_tags, remove_double_bracket
 from preprocess import remove_title_and_parenth, remove_quotes_and_punct, conv2tw
-from preprocess import remove_private_use_area, isKatakana
+from preprocess import remove_private_use_area, isKatakana, remove_nonlatin_words
 
 MongoURL = 'mongodb://localhost/NLP'
 # default timeout 是設定網路相關的timeout，例如 MongoDB 及 Slack
@@ -153,47 +153,17 @@ def tidify_wiki_en(t):
     t: 必須是 unicode string。
        如果不是，可以用 unicode(text, errors='ignore') 來轉換成 unicode string。
     """
-
     if not t or len(t) < 10:
         return ''
-    text = to_half_word(t).replace('\n', ' ')
-    t = ''
-    level = 0
-    start = 0
-    # delete {{....}}
-    for i in range(len(text)):
-        if text[i] == '{':
-            if level == 0:
-                t += text[start:i]
-            level += 1
-        elif text[i] == '}':
-            level -= 1
-            if level == 0:
-                start = i + 1
-    t += text[start:]
-
-    t = re.sub(r'\{\{.*?\}\}', '', t)                   # delete {{...}}
-    t = re.sub(r'<!--.*?-->', '', t)                    # delete <!--...-->
-    t = re.sub(r'<ref[^/]*?/(ref|)>', '', t)            # delete <ref .../>
-    t = re.sub(r'<ref.*?ref>', '', t)                   # delete <ref>...</ref>
-    t = re.sub(r'\[\[[^\]]*?/:.*?\]\]', '', t)          # delete [[AA:BB]]
-    t = re.sub(r'\[\[File:.*?\]\]', '', t)
-    t = re.sub(r'\[\[Category:.*?\]\]', '', t)
-    t = re.sub(r'\[\[([^\|\]]*?)\|.*?\]\]', '\\1', t)   # [[AA|BB]] --> [[AA]]
-    t = re.sub(r'</?[^>]+?>', '', t)                    # delete <tag>
-    t = re.sub(r'\w+://(\w+\.){1,}\w+/?[^ ]*', '', t)    # delete http://....
-    t = re.sub(r'==see also==.*', '', t)
-    t = re.sub(r'==references==.*', '', t)
-    t = re.sub(r'==further reading==.*', '', t)
-    t = re.sub(r'==external links==.*', '', t)
-    t = re.sub(r'=+[ \w]+?=+', '', t)                   # delete == tt ==
-    t = ''.join([ch for ch in t if ord(ch) < 0x2000])
-    t = t.replace('#', ' ').replace('===', ' ').replace('==', ' ')
-    t = t.replace(', ', ' , ').replace('. ', ' . ').replace('(', ' ( ').replace(')', ' ) ') \
-         .replace('!', ' ! ').replace('?', ' ? ').replace(';', ' ').replace(':', ' ') \
-         .replace("'''", ' ').replace('"', ' ').replace('-', ' ').replace('^', ' ') \
-         .replace('*', ' ').replace('$', '').replace('/', ' ').replace('&nbsp', ' ') \
-         .replace('…', ' ').replace('´', '\'').replace("''", ' ')
+    t = remove_private_use_area(t)
+    t = to_half_word(t)
+    t = remove_reference_or_internal(t)
+    t = remove_image_and_file(t)
+    t = remove_ref_or_tags(t)
+    t = remove_double_bracket(t)
+    t = remove_title_and_parenth(t)
+    t = remove_nonlatin_words(t)
+    t = remove_quotes_and_punct(t).replace('\n', ' ')
     t = re.sub(r'([A-Za-z]),([A-Za-z])', '\\1 , \\2', t)
     t = re.sub(r'\\[\w\^0-9]+', ' ', t)
     t = re.sub(r'&[a-z]+', ' ', t)
@@ -208,7 +178,7 @@ def tidify_wiki_en(t):
     for w in words:
         if w[0].isupper() and w[1:].islower():  # 可能是字首或人名
             if w.lower() in words:  # 多半是字首
-                text = text.replace(w, w.lower())  # 一律以小寫代替
+                t = t.replace(w, w.lower())  # 一律以小寫代替
 
     for i, q in enumerate(quotes):
         t = t.replace('[[{}]]'.format(i), q)
@@ -302,7 +272,7 @@ def parse_article_en(title, identical, the_id, text, buffer, temp_collect):
     global exist_id
     if int(the_id) in exist_id:
         return
-    text = text
+    text_lower = text.lower()
     links = set(re.findall('\[\[([^#]+?)[\]\|#]', text))
     # 所有的 [[...]] 會分為三類
     # 'category:' 開頭的放在 cat 中
@@ -327,13 +297,13 @@ def parse_article_en(title, identical, the_id, text, buffer, temp_collect):
     if title[:9].lower() == 'category:':
         data['title'] = title[9:]    # 如果是category，只保留名稱，不保留開頭的'category:'
         data['isCategory'] = True
-        i = text.lower().find('{{cat main|')  # 如果有對應的main article，記錄在這裡
+        i = text_lower.find('{{cat main|')  # 如果有對應的main article，記錄在這裡
         if i > -1:
-            j = text.lower().find('}}', i)
+            j = text_lower.find('}}', i)
             data['mainArticle'] = text[(i + 11):j]
     else:
         data['isArticle'] = True
-        if text[:9].lower() != '#redirect' and text.lower().find('{{disambig') == -1:
+        if text_lower[:9] != '#redirect' and text_lower.find('{{disambig') == -1:
             data['text'] = tidify_wiki_en(text)
 
     buffer.append(data)
@@ -530,7 +500,7 @@ def parse_wiki(urlData, worker):
                 exist_id.add(it['id'])
         print('delete {} redundant items'.format(n))
         print('found {} existing ids'.format(len(exist_id)))
-    except CollectionInvalid:
+    except OperationFailure:
         pass
 
     if worker <= 1:
@@ -549,12 +519,12 @@ def parse_wiki(urlData, worker):
     # 將 'enwiki' 改名成 'enwiki-2016-04-16-backup'
     try:
         current_collect.rename(back_collect_name)
-    except CollectionInvalid:
+    except OperationFailure:
         pass
     # 將 'enwiki-2016-04-16' 改名成 'enwiki'
     try:
         temp_collect.rename(new_collect_name)
-    except CollectionInvalid:
+    except OperationFailure:
         pass
 
     # 自動建立index，包含 title/id/isCategory/identical

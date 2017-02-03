@@ -89,6 +89,10 @@ def remove_reference_or_internal(text):
     index.append(text.find('==関連項目=='))
     index.append(text.find('==外部リンク=='))
     index.append(text.find('==內部リンク=='))
+    index.append(text.find('==See Also=='))
+    index.append(text.find('==References=='))
+    index.append(text.find('==Further Reading=='))
+    index.append(text.find('==External Links=='))
     index = [i for i in index if i > 0]
     if len(index) == 0:
         return text
@@ -153,6 +157,10 @@ def remove_title_and_parenth(text):
     text = re.sub('^[ \*]+', '', text)
     text = re.sub('\[\[[^\|\]]*?\|(.*?)\]\]', ' \\1 ', text)
     return text
+
+
+def remove_nonlatin_words(text):
+    return ''.join([ch for ch in text if ord(ch) < 0x2000])
 
 
 _quotes = {

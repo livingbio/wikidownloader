@@ -17,7 +17,7 @@ from argparse import ArgumentParser
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 import os
-from sys import exit
+from sys import exit, platform
 import re
 import signal
 from datetime import datetime as dt
@@ -40,7 +40,9 @@ setdefaulttimeout(30)
 def signal_handler(signum, frame):
     raise Exception('timeout happended!!')
 
-signal.signal(signal.SIGALRM, signal_handler)
+
+if platform != 'win32':
+    signal.signal(signal.SIGALRM, signal_handler)
 
 ######################################################################
 # Start of main program                                              #

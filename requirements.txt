@@ -3,5 +3,9 @@ pymongo
 numpy
 Janome
 suds
--e git+https://git@github.com/livingbio/pyknp.git#egg=pyknp
--e git+https://git@github.com/livingbio/zhconvert.git#egg=zhconvert
+-e git+https://github.com/banyh/PyStanfordNLP
+-e git+https://github.com/ektormak/Lyssandra
+
+#-e git+https://git@github.com/livingbio/pyknp.git#egg=pyknp
+#-e git+https://git@github.com/livingbio/zhconvert.git#egg=zhconvert
+

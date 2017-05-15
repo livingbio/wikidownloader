@@ -517,7 +517,7 @@ def parse_wiki(urlData, worker, langs=[]):
         temp_collect[lang] = MongoClient(MongoURL)['NLP'][tmp_collect_name(lang)]
         try:
             n = 0
-            for it in temp_collect.find({}, {'id': True}):
+            for it in temp_collect[lang].find({}, {'id': True}):
                 if it['id'] in exist_id:
                     temp_collect.delete_one({'_id': it['_id']})
                     n += 1
@@ -532,14 +532,14 @@ def parse_wiki(urlData, worker, langs=[]):
         # 單個process時，就依序作
         for xmlBz2File in urlData['href']:
             lang = xmlBz2File[:2]
-            wiki_xml_parser((xmlBz2File, 0, temp_collect[lang]))
+            wiki_xml_parser((xmlBz2File, 0, tmp_collect_name(lang)))
     else:
         # 多個process時，每個worker負責一個檔案
         pool = Pool(worker)
         infos = []
         for idx, h in enumerate(urlData['href']):
             lang = h[:2]
-            infos.append((h, idx, temp_collect[lang]))
+            infos.append((h, idx, tmp_collect_name(lang)))
         print(infos)
 
         pool.map(wiki_xml_parser, infos)
@@ -618,7 +618,7 @@ def wiki_downloader(langs, use_local_file, worker):
     """
 
     for language in langs:
-        data = {}
+        data = {"href": [], "date": [], "size": []}
         if use_local_file:
             # 不作任何檢查，直接用目錄下的bz2作為檔案清單
             bz2files = np.array([fn for fn in os.listdir('.')

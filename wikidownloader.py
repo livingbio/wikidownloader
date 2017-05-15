@@ -48,6 +48,7 @@ if platform != 'win32':
 # Start of main program                                              #
 ######################################################################
 
+
 def prepare_wiki_url(base_url):
     """分析 WikiMedia 網站，傳回要下載的檔案清單，包含日期及大小。
     日期及大小會用來核對檔案是否需要重新下載，只要日期或大小不同，就會重新下載。
@@ -193,7 +194,7 @@ def tidify_wiki_en(t):
 
     words = [w for w in t.split() if w.isalpha() or (not w.count('=') and not w.count('{')
              and not w.count('}') and not w.startswith(',') and not w.startswith('.')
-             and not w.count('~') )]
+             and not w.count('~'))]
     return ' '.join(words)
 
 
@@ -625,7 +626,6 @@ def wiki_downloader(langs, use_local_file, worker):
         data['href'] += urlData['href']
         data['date'] += urlData['date']
         data['size'] += urlData['size']
-    print data
     parse_wiki(data, worker)
 
 

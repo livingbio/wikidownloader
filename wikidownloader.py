@@ -599,7 +599,7 @@ def wiki_downloader_preview(language, use_local_file):
         print('{:60}{:12}'.format(urlData['href'][i], urlData['size'][i]))
 
 
-def wiki_downloader(language, use_local_file, worker):
+def wiki_downloader(langs, use_local_file, worker):
     """全自動下載 WikiMedia 上的檔案，處理後放到 MongoDB。
 
     language: 可以是 'en','zh','ja','ko','de'
@@ -607,19 +607,26 @@ def wiki_downloader(language, use_local_file, worker):
     worker: 要用幾個process同時執行
     """
 
-    if use_local_file:
-        # 不作任何檢查，直接用目錄下的bz2作為檔案清單
-        bz2files = np.array([fn for fn in os.listdir('.')
-                             if fn.startswith(language) and fn.endswith('bz2')], dtype=np.str)
-        bz2sizes = np.array([os.stat(fn).st_size for fn in bz2files], dtype=np.int64)
-        descOrder = np.argsort(bz2sizes)[::-1]
-        urlData = {'href': bz2files[descOrder], 'size': bz2sizes[descOrder]}
-    else:
-        base_url = 'https://dumps.wikimedia.org/{}wiki/latest/'.format(language)
-        urlData = prepare_wiki_url(base_url)
-        urlData = clear_duplicated_url(urlData)
-        download_wiki(base_url, urlData)
-    parse_wiki(urlData, worker)
+    for language in langs:
+        data = {}
+        if use_local_file:
+            # 不作任何檢查，直接用目錄下的bz2作為檔案清單
+            bz2files = np.array([fn for fn in os.listdir('.')
+                                 if fn.startswith(language) and fn.endswith('bz2')], dtype=np.str)
+            bz2sizes = np.array([os.stat(fn).st_size for fn in bz2files], dtype=np.int64)
+            descOrder = np.argsort(bz2sizes)[::-1]
+            urlData = {'href': bz2files[descOrder], 'size': bz2sizes[descOrder]}
+        else:
+            base_url = 'https://dumps.wikimedia.org/{}wiki/latest/'.format(language)
+            urlData = prepare_wiki_url(base_url)
+            urlData = clear_duplicated_url(urlData)
+            download_wiki(base_url, urlData)
+
+        data['href'] += urlData['href']
+        data['date'] += urlData['date']
+        data['size'] += urlData['size']
+    print data
+    parse_wiki(data, worker)
 
 
 if __name__ == '__main__':
@@ -638,7 +645,8 @@ if __name__ == '__main__':
     for lang in args['language']:
         if lang not in supported_lang:
             raise ValueError('Language "{}" is not acceptable.'.format(lang))
-        if args['preview']:
-            wiki_downloader_preview(lang, use_local_file=args['use_local_file'])
-        else:
-            wiki_downloader(lang, use_local_file=args['use_local_file'], worker=int(args['worker']))
+
+    if args['preview']:
+        wiki_downloader_preview(args['language'], use_local_file=args['use_local_file'])
+    else:
+        wiki_downloader(args['language'], use_local_file=args['use_local_file'], worker=int(args['worker']))

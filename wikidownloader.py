@@ -502,65 +502,74 @@ def wiki_xml_parser(args):
 exist_id = set()
 
 
-def parse_wiki(urlData, worker):
+def parse_wiki(urlData, worker, langs=[]):
     """For all xml files we downloaded, parse them and store data on Mongodb.
     """
 
-    new_collect_name = urlData['href'][0][:2] + 'wiki'
-    tmp_collect_name = urlData['href'][0][:2] + 'wiki-temp'
-    back_collect_name = tmp_collect_name + '-backup'
+    new_collect_name = lambda lang: lang + 'wiki'
+    tmp_collect_name = lambda lang: lang + 'wiki-temp'
+    back_collect_name = lambda lang: tmp_collect_name(lang) + '-backup'
 
-    # 無條件刪除 temp_collect
-    exist_id.clear()
-    temp_collect = MongoClient(MongoURL)['NLP'][tmp_collect_name]
-    try:
-        n = 0
-        for it in temp_collect.find({}, {'id': True}):
-            if it['id'] in exist_id:
-                temp_collect.delete_one({'_id': it['_id']})
-                n += 1
-            else:
-                exist_id.add(it['id'])
-        print('delete {} redundant items'.format(n))
-        print('found {} existing ids'.format(len(exist_id)))
-    except OperationFailure:
-        pass
+    temp_collect = {}
+    for lang in langs:
+        # 無條件刪除 temp_collect
+        exist_id.clear()
+        temp_collect[lang] = MongoClient(MongoURL)['NLP'][tmp_collect_name(lang)]
+        try:
+            n = 0
+            for it in temp_collect.find({}, {'id': True}):
+                if it['id'] in exist_id:
+                    temp_collect.delete_one({'_id': it['_id']})
+                    n += 1
+                else:
+                    exist_id.add(it['id'])
+            print('delete {} redundant items'.format(n))
+            print('found {} existing ids'.format(len(exist_id)))
+        except OperationFailure:
+            pass
 
     if worker <= 1:
         # 單個process時，就依序作
         for xmlBz2File in urlData['href']:
-            wiki_xml_parser((xmlBz2File, 0, tmp_collect_name))
+            lang = xmlBz2File[:2]
+            wiki_xml_parser((xmlBz2File, 0, temp_collect[lang]))
     else:
         # 多個process時，每個worker負責一個檔案
         pool = Pool(worker)
-        href = urlData['href'].tolist()
-        pool.map(wiki_xml_parser, zip(href, range(len(href)), [tmp_collect_name] * len(href)))
+        infos = []
+        for idx, h in enumerate(urlData['href']):
+            lang = h[:2]
+            infos.append((h, idx, temp_collect[lang]))
+        print(infos)
+
+        pool.map(wiki_xml_parser, infos)
         pool.close()
         pool.join()
 
-    current_collect = MongoClient(MongoURL)['NLP'][new_collect_name]
-    # 將 'enwiki' 改名成 'enwiki-2016-04-16-backup'
-    try:
-        current_collect.rename(back_collect_name)
-    except OperationFailure:
-        pass
-    # 將 'enwiki-2016-04-16' 改名成 'enwiki'
-    try:
-        temp_collect.rename(new_collect_name)
-    except OperationFailure:
-        pass
+    for lang in langs:
+        current_collect = MongoClient(MongoURL)['NLP'][new_collect_name(lang)]
+        # 將 'enwiki' 改名成 'enwiki-2016-04-16-backup'
+        try:
+            current_collect.rename(back_collect_name)
+        except OperationFailure:
+            pass
+        # 將 'enwiki-2016-04-16' 改名成 'enwiki'
+        try:
+            temp_collect[lang].rename(new_collect_name(lang))
+        except OperationFailure:
+            pass
 
-    # 自動建立index，包含 title/id/isCategory/identical
-    new_collect = MongoClient(MongoURL)['NLP'][new_collect_name]
-    sleep(10)
-    new_collect.create_index('title', background=True)
-    sleep(10)
-    new_collect.create_index('id', background=True)
-    sleep(10)
-    new_collect.create_index('isCategory', background=True)
-    sleep(10)
-    new_collect.create_index('identical', background=True)
-    log.warn('{} parsing finished'.format(new_collect_name))
+        # 自動建立index，包含 title/id/isCategory/identical
+        new_collect = MongoClient(MongoURL)['NLP'][new_collect_name(lang)]
+        sleep(10)
+        new_collect.create_index('title', background=True)
+        sleep(10)
+        new_collect.create_index('id', background=True)
+        sleep(10)
+        new_collect.create_index('isCategory', background=True)
+        sleep(10)
+        new_collect.create_index('identical', background=True)
+        log.warn('{} parsing finished'.format(new_collect_name(lang)))
 
 
 def clear_duplicated_url(urlData):
@@ -623,10 +632,10 @@ def wiki_downloader(langs, use_local_file, worker):
             urlData = clear_duplicated_url(urlData)
             download_wiki(base_url, urlData)
 
-        data['href'] += urlData['href']
-        data['date'] += urlData['date']
-        data['size'] += urlData['size']
-    parse_wiki(data, worker)
+        data['href'] += urlData['href'].tolist()
+        data['date'] += urlData['date'].tolist()
+        data['size'] += urlData['size'].tolist()
+    parse_wiki(data, worker, langs)
 
 
 if __name__ == '__main__':

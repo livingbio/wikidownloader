@@ -502,7 +502,7 @@ def wiki_xml_parser(args):
 exist_id = set()
 
 
-def parse_wiki(urlData, worker, langs=[]):
+def parse_wiki(urlData, worker, langs=[], index=True):
     """For all xml files we downloaded, parse them and store data on Mongodb.
     """
 
@@ -550,7 +550,7 @@ def parse_wiki(urlData, worker, langs=[]):
         current_collect = MongoClient(MongoURL)['NLP'][new_collect_name(lang)]
         # 將 'enwiki' 改名成 'enwiki-2016-04-16-backup'
         try:
-            current_collect.rename(back_collect_name)
+            current_collect.rename(back_collect_name(lang))
         except OperationFailure:
             pass
         # 將 'enwiki-2016-04-16' 改名成 'enwiki'
@@ -560,16 +560,17 @@ def parse_wiki(urlData, worker, langs=[]):
             pass
 
         # 自動建立index，包含 title/id/isCategory/identical
-        new_collect = MongoClient(MongoURL)['NLP'][new_collect_name(lang)]
-        sleep(10)
-        new_collect.create_index('title', background=True)
-        sleep(10)
-        new_collect.create_index('id', background=True)
-        sleep(10)
-        new_collect.create_index('isCategory', background=True)
-        sleep(10)
-        new_collect.create_index('identical', background=True)
-        log.warn('{} parsing finished'.format(new_collect_name(lang)))
+        if index:
+            new_collect = MongoClient(MongoURL)['NLP'][new_collect_name(lang)]
+            sleep(10)
+            new_collect.create_index('title', background=True)
+            sleep(10)
+            new_collect.create_index('id', background=True)
+            sleep(10)
+            new_collect.create_index('isCategory', background=True)
+            sleep(10)
+            new_collect.create_index('identical', background=True)
+            log.warn('{} parsing finished'.format(new_collect_name(lang)))
 
 
 def clear_duplicated_url(urlData):
@@ -609,7 +610,7 @@ def wiki_downloader_preview(language, use_local_file):
         print('{:60}{:12}'.format(urlData['href'][i], urlData['size'][i]))
 
 
-def wiki_downloader(langs, use_local_file, worker):
+def wiki_downloader(langs, use_local_file, worker, index=True):
     """全自動下載 WikiMedia 上的檔案，處理後放到 MongoDB。
 
     language: 可以是 'en','zh','ja','ko','de'
@@ -650,12 +651,18 @@ if __name__ == '__main__':
                         default=4, help='The number of processes to run parser.')
     parser.add_argument('--preview', dest='preview', action='store_const',
                         const=True, default=False, help='Preview what files will be downloaded or parsed.')
+
+    parser.add_argument('--no-index', dest='no_index', action='store_const',
+                        const=True, default=False, help='Preview what files will be downloaded or parsed.')
+
+
     args = vars(parser.parse_args())
     for lang in args['language']:
         if lang not in supported_lang:
             raise ValueError('Language "{}" is not acceptable.'.format(lang))
 
+    index = not args['no_index']
     if args['preview']:
-        wiki_downloader_preview(args['language'], use_local_file=args['use_local_file'])
+        wiki_downloader_preview(args['language'], use_local_file=args['use_local_file'], index=index)
     else:
-        wiki_downloader(args['language'], use_local_file=args['use_local_file'], worker=int(args['worker']))
+        wiki_downloader(args['language'], use_local_file=args['use_local_file'], worker=int(args['worker']), index=index)

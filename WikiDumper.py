@@ -67,7 +67,9 @@ def prepare_wiki_url(lang):
 
 def download(info):
     url, output = info
+    print "start download {}".format(url)
     urlretrieve(url, output)
+    print "download success {}".format(url)
 
 def dump_wiki(lang):
     infos = prepare_wiki_url(lang)

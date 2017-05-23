@@ -72,6 +72,7 @@ def download(info):
     st = dt.now()
     print "start download {} at {}".format(url, st)
     urlretrieve(url, output)
+    ed = dt.now()
     print "download success {} at {} duration: {}".format(url, ed, ed - st)
 
 def dump_wiki(lang):

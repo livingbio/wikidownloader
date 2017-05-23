@@ -429,6 +429,7 @@ class Extractor(object):
         self.id = id
         self.title = title
         self.text = ''.join(lines)
+        self.categories = re.findall("(?<=\[\[Category:)[^\]\|]*", self.text )
         self.magicWords = MagicWords()
         self.frame = []
         self.recursion_exceeded_1_errs = 0  # template recursion within expandTemplates()
@@ -457,11 +458,18 @@ class Extractor(object):
         for line in compact(self.clean()):
             text += line
             text += "\n"
+
+        # extract categories
+
+        # clean tag
+        re.sub("<[^>]*>", "", text)
+
         data = {}
         data['title'] = self.title
         data['id'] = self.id
         data['url'] = url
         data['text'] = text
+        data['categories'] = self.categories
         out.write(json.dumps(data) + "\n")
         errs = (self.template_title_errs,
                 self.recursion_exceeded_1_errs,
@@ -2579,7 +2587,8 @@ def extract_process(i, jobs_queue, output_queue):
                 page = None              # free memory
                 e.extract(out)
                 text = out.getvalue()
-            except:
+            except Exception as e:
+                print e
                 text = ''
                 logging.error('Processing page: %s %s', id, title)
             output_queue.put((page_num, text))
@@ -2770,4 +2779,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as e:
+        print e
         pass

@@ -60,7 +60,9 @@ def prepare_wiki_url(lang):
     date = date[descOrder]
     size = size[descOrder]
 
-    return({'href': href, 'date': date, 'size': size})
+    data = dict(zip(href, zip(date, size)))
+
+    return data
 
 
 def download(info):
@@ -70,7 +72,7 @@ def download(info):
 def dump_wiki(lang):
     infos = prepare_wiki_url(lang)
     pool = Pool(10)
-    pool.map(download, [(href, lang + "/" + os.path.basename(href)) for href in infos['href']])
+    pool.map(download, [(href, lang + "/" + os.path.basename(href)) for href in infos.keys()])
 
 
 if __name__ == '__main__':

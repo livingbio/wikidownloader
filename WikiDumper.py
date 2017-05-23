@@ -71,7 +71,7 @@ def download(info):
 
 def dump_wiki(lang):
     infos = prepare_wiki_url(lang)
-    pool = Pool(10)
+    pool = Pool(3)
     pool.map(download, [(href, lang + "/" + os.path.basename(href)) for href in infos.keys()])
 
 

@@ -22,6 +22,7 @@ except ImportError:
     from urllib.request import urlretrieve
 
 import urlparse
+import requests
 
 def prepare_wiki_url(lang):
     """分析 WikiMedia 網站，傳回要下載的檔案清單，包含日期及大小。
@@ -67,8 +68,9 @@ def prepare_wiki_url(lang):
 
 def download(info):
     url, output = info
+
     st = dt.now()
-    print "start download {} at {}".format(url)
+    print "start download {} at {}".format(url, st)
     urlretrieve(url, output)
     print "download success {} at {} duration: {}".format(url, ed, ed - st)
 

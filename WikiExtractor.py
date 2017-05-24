@@ -461,7 +461,7 @@ def clean_comment(text):
         "__DISAMBIG__"
     ]
 
-    return re.sub("|".join(comments), "")
+    return re.sub("|".join(comments), "", text)
 
 class Extractor(object):
     """

@@ -395,6 +395,42 @@ class TemplateArg(object):
 
 substWords = 'subst:|safesubst:'
 
+def ref_trans(matcher):
+    text = matcher.group()
+    # remove tag
+    if ":" in text:
+        return ""
+    text = text.replace("[[", "").replace("]]", "")
+    return text.split('|')[0]
+
+def clean_ref(text):
+    return re.sub("\[\[[^\]]*?\]\]", ref_trans, text)
+
+def template_trans(matcher):
+    txt = matcher.group()
+    print txt
+    txt = txt.replace("{{", "").replace("}}", "")
+    data = txt.split("|")
+    if data[0].startswith('link-') or data[0].startswith('lang-') or data[0] in ['IPA', 'le']:
+        return data[1]
+    elif data[0] in ('link', 'lang'):
+        return data[2]
+    else:
+        return ""
+
+
+def clean_template(text):
+    new_text = re.sub(".*\{\{[^\{\}]*\}\}.*", template_trans, text)
+    if text == new_text:
+        return new_text
+    else:
+        return clean_template(new_text)
+
+def clean_number(text):
+    matcher = re.findall("([^\d]\d{1,2}(,\d{3})+[^\d])", text)
+
+    return re.sub("[^\d]\d{1,2}(,\d{3})+[^\d]", lambda x:x.group().replace(",", ""), text)
+
 class Extractor(object):
     """
     An extraction task on a article.
@@ -462,7 +498,14 @@ class Extractor(object):
         # extract categories
 
         # clean tag
-        re.sub("<[^>]*>", "", text)
+        text = re.sub("<[^>]*>", "", text)
+
+        # clean template
+        text = clean_ref(text)
+
+        text = clean_number(text)
+
+        text = clean_template(text)
 
         data = {}
         data['title'] = self.title

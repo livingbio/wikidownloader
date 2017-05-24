@@ -408,7 +408,6 @@ def clean_ref(text):
 
 def template_trans(matcher):
     txt = matcher.group()
-    print txt
     txt = txt.replace("{{", "").replace("}}", "")
     data = txt.split("|")
     if data[0].startswith('link-') or data[0].startswith('lang-') or data[0] in ['IPA', 'le']:
@@ -425,6 +424,16 @@ def clean_template(text):
         return new_text
     else:
         return clean_template(new_text)
+
+def clean_comma(text):
+    main = u"\u00b7",
+    patterns = [
+        u"\uff0e",
+        u"\u2027",
+        u"\u02d9",
+    ]
+
+    return re.sub("|".join(patterns), main, text)
 
 def clean_number(text):
     matcher = re.findall("([^\d]\d{1,2}(,\d{3})+[^\d])", text)
@@ -452,9 +461,7 @@ def clean_comment(text):
         "__DISAMBIG__"
     ]
 
-    for comment in comments:
-        text = text.replace(comment, "")
-    return text
+    return re.sub("|".join(comments), "")
 
 class Extractor(object):
     """
@@ -525,6 +532,8 @@ class Extractor(object):
         # clean tag
         text = re.sub("<[^>]*>", "", text)
 
+        text = clean_comma(text)
+
         # clean template
         text = clean_ref(text)
 
@@ -533,6 +542,7 @@ class Extractor(object):
         text = clean_template(text)
 
         text = clean_comment(text)
+
 
         data = {}
         data['title'] = self.title

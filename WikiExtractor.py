@@ -431,6 +431,31 @@ def clean_number(text):
 
     return re.sub("[^\d]\d{1,2}(,\d{3})+[^\d]", lambda x:x.group().replace(",", ""), text)
 
+def clean_comment(text):
+    comments = [
+        "__NOTOC__",
+        "__FORCETOC__",
+        "__TOC__",
+        "__NOEDITSECTION__",
+        "__NEWSECTIONLINK__",
+        "__NONEWSECTIONLINK__",
+        "__NOGALLERY__",
+        "__HIDDENCAT__",
+        "__NOCONTENTCONVERT__",
+        "__NOCC__",
+        "__NOTITLECONVERT__",
+        "__NOTC__",
+        "__START__",
+        "__INDEX__",
+        "__NOINDEX__",
+        "__STATICREDIRECT__",
+        "__DISAMBIG__"
+    ]
+
+    for comment in comments:
+        text = text.replace(comment, "")
+    return text
+
 class Extractor(object):
     """
     An extraction task on a article.
@@ -506,6 +531,8 @@ class Extractor(object):
         text = clean_number(text)
 
         text = clean_template(text)
+
+        text = clean_comment(text)
 
         data = {}
         data['title'] = self.title

@@ -1,0 +1,34 @@
+library 'common'
+node('large'){
+	checkout scm
+
+    stage 'download image'
+    dockerhub.pull('gliacloud/base_images:django')
+
+    withDockerContainer(image:'gliacloud/base_images:django', args: '-u root:root') {
+        sh 'pip install awscli'
+
+        stage "download requirement"
+
+        langs = ["en", "zh", "ja"]
+
+        for (String lang: langs){
+            stage(lang){
+                stage "download ${lang}"
+                sh "mkdir -p ${lang}"
+                sh "python WikiDumper.py ${lang}"
+
+                stage "prepare ${lang}"
+                sh "cd ${lang} && ls -lh"
+                sh "cd ${lang} && ls *.bz2 | xargs -i -t basename {} .bz2 | xargs -i -t ../WikiExtractor.py -b 50m --processes=4 {}.bz2 -o {}"
+
+                stage "remove ${lang}"
+                sh "rm ${lang}/*.bz2"
+
+                stage "upload s3 ${lang}"
+                s3.upload_folder("gliacloud-nlp", "${lang}", "rawdata/${lang}/wiki")
+                sh "rm -rf ${lang}""
+            }
+        }
+    }
+}

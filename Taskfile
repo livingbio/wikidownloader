@@ -3,9 +3,9 @@ node('large'){
 	checkout scm
 
     stage 'download image'
-    dockerhub.pull('gliacloud/base_images:django')
+	sh "docker build . -t wiki"
 
-    withDockerContainer(image:'gliacloud/base_images:django', args: '-u root:root') {
+    withDockerContainer(image:'wiki', args: '-u root:root') {
         sh 'pip install awscli'
 
         stage "download requirement"
@@ -20,7 +20,7 @@ node('large'){
 
                 stage "prepare ${lang}"
                 sh "cd ${lang} && ls -lh"
-                sh "cd ${lang} && ls *.bz2 | xargs -i -t basename {} .bz2 | xargs -i -t ../WikiExtractor.py -b 50m --processes=4 {}.bz2 -o {}"
+                sh "cd ${lang} && ls *.bz2 | xargs -i -t basename {} .bz2 | xargs -i -t ../WikiExtractor.py -b 50m --processes=4 {}.bz2 -o {} --lang ${lang}"
 
                 stage "remove ${lang}"
                 sh "rm ${lang}/*.bz2"

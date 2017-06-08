@@ -63,6 +63,7 @@ from htmlentitydefs import name2codepoint
 from itertools import izip, izip_longest
 from multiprocessing import Queue, Process, Value, cpu_count
 from timeit import default_timer
+from segment import segment_text
 
 # ===========================================================================
 
@@ -494,10 +495,34 @@ class Extractor(object):
         :param title: tutle of page.
         :param lines: a list of lines.
         """
+        global lang
         self.id = id
         self.title = title
         self.text = ''.join(lines)
+        text = self.text
+
         self.categories = re.findall("(?<=\[\[Category:)[^\]\|]*", self.text )
+
+        self.related = re.findall("\[\[([^:]*)\]\]", text)
+
+        text_lower = text.lower()
+
+        self.isArticle=False
+        self.isCategory=False
+        self.mainArticle = ""
+
+        if title[:9].lower() == 'category:':
+            # 如果是category，只保留名稱，不保留開頭的'category:'
+            self.title = title[9:]
+            self.isCategory = True
+            i = text_lower.find('{{cat main|')  # 如果有對應的main article，記錄在這裡
+            if i > -1:
+                j = text_lower.find('}}', i)
+                self.mainArticle = text[(i + 11):j]
+        else:
+            self.isArticle = True
+
+
         self.magicWords = MagicWords()
         self.frame = []
         self.recursion_exceeded_1_errs = 0  # template recursion within expandTemplates()
@@ -549,7 +574,12 @@ class Extractor(object):
         data['id'] = self.id
         data['url'] = url
         data['text'] = text
+        data['related'] = self.related
+        data['isCategory'] = self.isCategory
+        data['mainArticle'] = self.mainArticle
+        data['isArticle'] = self.isArticle
         data['categories'] = self.categories
+        data['segment_text'] = segment_text(lang, text)
         out.write(json.dumps(data) + "\n")
         errs = (self.template_title_errs,
                 self.recursion_exceeded_1_errs,
@@ -2750,6 +2780,9 @@ def main():
     groupO = parser.add_argument_group('Output')
     groupO.add_argument("-o", "--output", default="text",
                         help="directory for extracted files (or '-' for dumping to stdout)")
+
+    groupO.add_argument("--lang", default="en",
+                        help="segment language")
     groupO.add_argument("-b", "--bytes", default="1M",
                         help="maximum bytes per output file (default %(default)s)",
                         metavar="n[KMG]")
@@ -2789,7 +2822,9 @@ def main():
                         help="print program version")
 
     args = parser.parse_args()
-
+    
+    global lang
+    lang = args.lang
     Extractor.keepLinks = args.links
     Extractor.keepSections = args.sections
     Extractor.keepLists = args.lists

@@ -3,6 +3,7 @@ node('large'){
 	checkout scm
 
     stage 'download image'
+    ecr.pull_image('parser', 'v0.4.5')
 	sh "docker build . -t wiki"
 
     withDockerContainer(image:'wiki', args: '-u root:root') {

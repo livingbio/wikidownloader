@@ -4,7 +4,7 @@ workdir /opt
 run pip install sklearn gensim
 run apt-get install libopenblas-base
 run pip install git+https://github.com/banyh/PyStanfordNLP
-run pip install beautifulsoup4
+run pip install bs4
 
 
 run git clone https://github.com/ektormak/Lyssandra.git

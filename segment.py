@@ -12,6 +12,9 @@ import signal
 import time
 from zhconvert import conv2tw
 from nltk import word_tokenize
+import os
+
+current_path = os.path.dirname(os.path.abspath(__file__))
 
 def timeout_handler(*args):
     raise Exception('timeout')
@@ -21,7 +24,7 @@ signal.signal(signal.SIGALRM, timeout_handler)
 import logging
 from logging.config import fileConfig
 
-fileConfig('logging_config.ini')
+fileConfig(os.path.join(current_path, 'logging_config.ini'))
 
 logger = logging.getLogger()
 

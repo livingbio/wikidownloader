@@ -11,7 +11,7 @@ node('large'){
 
         stage "download requirement"
 
-        langs = ["en", "zh", "ja"]
+        langs = ["zh", "ja", "en"]
 
         for (String lang: langs){
             stage(lang){

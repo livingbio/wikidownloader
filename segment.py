@@ -59,6 +59,8 @@ def segment_text(lang, text):
     if not cache.get(lang, None):
         cache[lang] = mapping[lang]()
         setattr(segment_text, 'cache', cache)
+    if isinstance(text, str):
+        text = text.decode('utf-8')
     lang_segmenter = cache[lang]
     sents = text.strip().split('\n')
     result = []
@@ -66,7 +68,10 @@ def segment_text(lang, text):
         if lang in ["ja", "zh"]:
             sent = re.sub("[{}]".format(string.whitespace), "", sent)
         if lang == "zh":
-            text = conv2tw(text)
+            try:
+                text = conv2tw(text)
+            except:
+                pass
         if not sent:
             continue
         try:

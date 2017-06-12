@@ -64,6 +64,7 @@ from itertools import izip, izip_longest
 from multiprocessing import Queue, Process, Value, cpu_count
 from timeit import default_timer
 from segment import segment_text
+import traceback
 
 # ===========================================================================
 
@@ -521,7 +522,6 @@ class Extractor(object):
                 self.mainArticle = text[(i + 11):j]
         else:
             self.isArticle = True
-
 
         self.magicWords = MagicWords()
         self.frame = []
@@ -2700,6 +2700,7 @@ def extract_process(i, jobs_queue, output_queue):
             except Exception as e:
                 print e
                 text = ''
+                traceback.print_exc()
                 logging.error('Processing page: %s %s', id, title)
             output_queue.put((page_num, text))
             out.truncate(0)

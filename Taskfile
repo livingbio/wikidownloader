@@ -1,5 +1,5 @@
 library 'common'
-node('large'){
+node('w2v'){
 	checkout scm
 
     stage 'download image'
@@ -21,7 +21,7 @@ node('large'){
 
                 stage "prepare ${lang}"
                 sh "cd ${lang} && ls -lh"
-                sh "cd ${lang} && ls *.bz2 | xargs -i -t basename {} .bz2 | xargs -i -t ../WikiExtractor.py -b 50m --processes=4 {}.bz2 -o {} --lang ${lang}"
+                sh "cd ${lang} && ls *.bz2 | xargs -i -t basename {} .bz2 | xargs -i -t ../WikiExtractor.py -b 50m --processes=32 {}.bz2 -o {} --lang ${lang}"
 
                 stage "remove ${lang}"
                 sh "rm ${lang}/*.bz2"

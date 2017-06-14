@@ -504,7 +504,7 @@ class Extractor(object):
 
         self.categories = re.findall("(?<=\[\[Category:)[^\]\|]*", self.text )
 
-        self.related = re.findall("\[\[([^:]*)\]\]", text)
+        self.related = re.findall("\[\[([^:\]]*)\]\]", text)
 
         text_lower = text.lower()
 

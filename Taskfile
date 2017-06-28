@@ -27,7 +27,7 @@ node('w2v'){
                 sh "rm ${lang}/*.bz2"
 
                 stage "upload s3 ${lang}"
-                s3.upload_folder("gliacloud-nlp", "${lang}", "rawdata/${lang}/wiki")
+                s3.upload_folder("gliacloud-nlp", "${lang}", "rawdata/${lang}/wiki/latest")
                 sh "rm -rf ${lang}"
             }
         }

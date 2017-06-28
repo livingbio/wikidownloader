@@ -10,9 +10,9 @@ node('w2v'){
         sh 'pip install awscli'
 
         stage "download requirement"
-        version = sh(returnStdout:true, scipt:"cat version").trim()
+        version = sh(returnStdout: true, script: "cat version").trim()
         langs = ["zh", "ja", "en"]
-        date = sh(returnStdout:true, script:"date +%Y-%m-%d").trim()
+        date = sh(returnStdout: true, script: "date +%Y-%m-%d").trim()
 
         println(version)
         println(date)

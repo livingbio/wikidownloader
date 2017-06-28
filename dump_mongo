@@ -7,6 +7,8 @@
 # 下載 zhwiki 的資料到 mongodb db=test collection=zh 
 database=test
 lang=$1
+version=`cat version`
+echo start download $version
 
-aws s3 sync s3://gliacloud-nlp/rawdata/$lang $lang
+aws s3 sync s3://gliacloud-nlp/rawdata/$lang/$version/lastst $lang
 cat `find $lang/*` | mongoimport -d $database -c $collection -j 4

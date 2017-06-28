@@ -41,6 +41,7 @@ def zh_segment():
 
     segmenter = Segmenter()
     def segment(text):
+        text = conv2tw(text)
         return segmenter.tw_segment(text)
     return segment
 

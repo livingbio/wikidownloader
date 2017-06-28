@@ -32,11 +32,11 @@ node('w2v'){
 
                 stage "upload s3 ${lang}"
                 try{
-                    s3.rename("gliacloud-nlp", "rawdata/${lang}/${version}/wiki/latest", "rawdata/${lang}/${version}/wiki/${date}")
+                    s3.rename("gliacloud-nlp", "rawdata/${lang}/${version}/latest/wiki", "rawdata/${lang}/${version}/${date}/wiki")
                 }catch(Exception ex){
                     println("Catching the exception");
                 }
-                s3.upload_folder("gliacloud-nlp", "${lang}", "rawdata/${lang}/wiki/${version}/latest")
+                s3.upload_folder("gliacloud-nlp", "${lang}", "rawdata/${lang}/${version}/latest/wiki")
                 sh "rm -rf ${lang}"
             }
         }

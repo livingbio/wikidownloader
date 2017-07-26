@@ -1,10 +1,10 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright © 2017 lizongzhe 
+# Copyright © 2017 lizongzhe
 #
 # Distributed under terms of the MIT license.
-
+from __future__ import print_function
 import gevent
 from gevent import monkey
 monkey.patch_all()
@@ -13,16 +13,21 @@ from bs4 import *
 import os
 
 from datetime import datetime as dt
+from time import mktime
 import re
 import numpy as np
 from gevent.pool import Pool
+import requests
+# Python 2/3 compatible
 try:
     from urllib import urlretrieve
 except ImportError:
     from urllib.request import urlretrieve
+try:
+    from urlparse import urljoin, urlsplit
+except ImportError:
+    from urllib.parse import urljoin, urlsplit
 
-import urlparse
-import requests
 
 def prepare_wiki_url(lang):
     """分析 WikiMedia 網站，傳回要下載的檔案清單，包含日期及大小。
@@ -42,47 +47,59 @@ def prepare_wiki_url(lang):
 
     bhtml = BeautifulSoup(html, 'lxml')
     # 我們只要抓檔名中包含 pages-articles 的檔案
-    tag_a = bhtml.find_all('a', {'href': re.compile(r'.*pages-articles\d.*bz2$')})
-    if len(tag_a) == 0:
-        tag_a = bhtml.find_all('a', {'href': re.compile(r'.*pages-articles\.xml\.bz2$')})
-    s = [tag.next.next.split() for tag in tag_a]
+    articles = bhtml.find_all('a', {'href': re.compile(r'.*pages-articles\d.*bz2$')})
+    if len(articles) == 0:
+        articles = bhtml.find_all('a', {'href': re.compile(r'.*pages-articles\.xml\.bz2$')})
+    date_time_size = [tag.next.next.split() for tag in articles]
 
-    href = np.array([urlparse.urljoin(base_url, tag['href']) for tag in tag_a], dtype=np.str)
-    date = np.array([dt.strptime(d[0] + ' ' + d[1], '%d-%b-%Y %H:%M') for d in s])
-    size = np.array([int(d[2]) for d in s], dtype=np.int64)
+    href = np.array([urljoin(base_url, tag['href']) for tag in articles], dtype=np.str)
+    date = np.array([dt.strptime(date + ' ' + time, '%d-%b-%Y %H:%M')
+                     for date, time, _ in date_time_size])
+    size = np.array([int(size) for _, _, size in date_time_size], dtype=np.int64)
 
     # 同名檔案會包含一個 xml 檔及一個 bz2，我們只需要抓 bz2
-    href = href[size > 100000]
-    date = date[size > 100000]
-    size = size[size > 100000]
+    if sum(size <= 100000):
+        href = href[size > 100000]
+        date = date[size > 100000]
+        size = size[size > 100000]
     # 用檔案大小排序，方便作 multi-processing
     descOrder = np.argsort(size)[::-1]
     href = href[descOrder]
     date = date[descOrder]
     size = size[descOrder]
 
-    data = dict(zip(href, zip(date, size)))
-
-    return data
+    return zip(href, date, size)
 
 
 def download(info):
-    url, output = info
+    url, lang, date, size = info
+    filename = urlsplit(url).path.split('/')[-1]
+    output = lang + '/' + filename
+    if not os.path.isdir(lang):
+        os.mkdir(lang)
 
     st = dt.now()
-    print "start download {} at {}".format(url, st)
     urlretrieve(url, output)
+    os.utime(output, (mktime(date.timetuple()),) * 2)
+    assert os.stat(output).st_size == size
     ed = dt.now()
-    print "download success {} at {} duration: {}".format(url, ed, ed - st)
+    print("[{}] finished, duration={}".format(filename, ed - st))
+
 
 def dump_wiki(lang):
     infos = prepare_wiki_url(lang)
+    print('Start Time: {}'.format(dt.now()))
+    for url, date, size in infos:
+        print('    {}, {}, {}'.format(url, date, size))
+
     pool = Pool(3)
-    pool.map(download, [(href, lang + "/" + os.path.basename(href)) for href in infos.keys()])
+    pool.map(download, [(url, lang, date, size) for url, date, size in infos])
 
 
 if __name__ == '__main__':
     import sys
-    name, lang = sys.argv
-    dump_wiki(lang)
-
+    if len(sys.argv) == 1:
+        for lang in ('en', 'zh', 'ja'):
+            dump_wiki(lang)
+    else:
+        dump_wiki(sys.argv[1])

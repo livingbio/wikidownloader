@@ -504,7 +504,9 @@ class Extractor(object):
 
         self.categories = re.findall("(?<=\[\[Category:)[^\]\|]*", self.text )
 
-        self.related = re.findall("\[\[([^:\]]*)\]\]", text)
+        related = re.findall("\[\[([^:\]]*)\]\]", text)
+        related = [re.sub('\|.*', '', re.sub(' \(.*', '', r)) for r in related]
+        self.related = list(set(related))
 
         text_lower = text.lower()
 
@@ -568,7 +570,6 @@ class Extractor(object):
 
         text = clean_comment(text)
 
-
         data = {}
         data['title'] = self.title
         data['id'] = self.id
@@ -580,6 +581,7 @@ class Extractor(object):
         data['isArticle'] = self.isArticle
         data['categories'] = self.categories
         data['segment_text'] = segment_text(lang, text)
+
         out.write(json.dumps(data) + "\n")
         errs = (self.template_title_errs,
                 self.recursion_exceeded_1_errs,
@@ -689,8 +691,8 @@ class Extractor(object):
         text = re.sub(u'(\[\(«) ', r'\1', text)
         text = re.sub(r'\n\W+?\n', '\n', text, flags=re.U)  # lines with only punctuations
         text = text.replace(',,', ',').replace(',.', '.')
-        if escape_doc:
-            text = cgi.escape(text)
+#        if escape_doc:
+#            text = cgi.escape(text)
         return text
 
 
@@ -1853,7 +1855,7 @@ def replaceInternalLinks(text):
                     pipe = last  # advance
                 curp = e1
             label = inner[pipe + 1:].strip()
-        res += text[cur:s] + makeInternalLink(title, label) + trail
+        res += text[cur:s] + makeInternalLink(title, label).replace(' ', '_') + trail
         cur = end
     return res + text[cur:]
 
@@ -2728,7 +2730,7 @@ def reduce_process(output_queue, spool_length,
         output = sys.stdout
         if file_compress:
             logging.warn("writing to stdout, so no output compression (use an external tool)")
-    
+
     interval_start = default_timer()
     # FIXME: use a heap
     spool = {}        # collected pages
@@ -2823,7 +2825,7 @@ def main():
                         help="print program version")
 
     args = parser.parse_args()
-    
+
     global lang
     lang = args.lang
     Extractor.keepLinks = args.links

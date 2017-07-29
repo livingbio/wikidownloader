@@ -4,7 +4,7 @@
 # Copyright © 2017 lizongzhe 
 #
 # Distributed under terms of the MIT license.
-
+from __future__ import unicode_literals
 from pyknp import Juman
 import string
 import re
@@ -40,6 +40,7 @@ def zh_segment():
     from stanford_segmenter import Segmenter
 
     segmenter = Segmenter()
+    segmenter.tw_segment('因為第一次載入時間較長，為避免timeout，要先跑一次斷詞')
     def segment(text):
         text = conv2tw(text)
         return segmenter.tw_segment(text)

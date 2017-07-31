@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright © 2017 lizongzhe 
+# Copyright © 2017 lizongzhe
 #
 # Distributed under terms of the MIT license.
 from __future__ import unicode_literals
@@ -68,6 +68,9 @@ def segment_text(lang, text):
     result = []
     for sent in sents:
         if lang in ["ja", "zh"]:
+            sent = re.sub(r'([A-Za-z][A-Za-z0-9\.]?)[ 　]([A-Za-z0-9\.])', '\\1_\\2', sent)
+            sent = re.sub(r'([A-Za-z][A-Za-z0-9\.]?)[ 　]([A-Za-z0-9\.])', '\\1_\\2', sent)
+            sent = re.sub(r'([A-Za-z][0-9\.]+)[ 　]([A-Za-z0-9\.])', '\\1_\\2', sent)
             sent = re.sub("[{}]".format(string.whitespace), "", sent)
         if lang == "zh":
             try:

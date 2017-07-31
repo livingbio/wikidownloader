@@ -65,6 +65,7 @@ from multiprocessing import Queue, Process, Value, cpu_count
 from timeit import default_timer
 from segment import segment_text
 import traceback
+from zhconvert import conv2tw
 
 # ===========================================================================
 
@@ -498,18 +499,15 @@ class Extractor(object):
         """
         global lang
         self.id = id
-        self.title = title
-        self.text = ''.join(lines)
+        self.title = conv2tw(title)
+        self.text = conv2tw(''.join(lines))
         text = self.text
+        title = self.title
 
-        self.categories = re.findall("(?<=\[\[Category:)[^\]\|]*", self.text )
-
+        self.categories = re.findall("(?<=\[\[Category:)[^\]\|]*", text)
         related = re.findall("\[\[([^:\]]*)\]\]", text)
         related = [re.sub('\|.*', '', re.sub(' \(.*', '', r)) for r in related]
         self.related = list(set(related))
-
-        text_lower = text.lower()
-
         self.isArticle=False
         self.isCategory=False
         self.mainArticle = ""
@@ -518,6 +516,7 @@ class Extractor(object):
             # 如果是category，只保留名稱，不保留開頭的'category:'
             self.title = title[9:]
             self.isCategory = True
+            text_lower = text.lower()
             i = text_lower.find('{{cat main|')  # 如果有對應的main article，記錄在這裡
             if i > -1:
                 j = text_lower.find('}}', i)

@@ -1,5 +1,6 @@
 #!/bin/bash
 
-cd $1
-ls *.bz2 | xargs -i -t basename {} .bz2 | xargs -i -t ../WikiExtractor.py -b 50m --processes=8 {}.bz2 -o {} --lang $1
-rm *.bz2
+for file in "$1"/*.bz2
+do
+    python WikiExtractor.py -b 50m --processes=8 "${file}" -o "${file%.bz2}" --lang $1
+done

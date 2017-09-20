@@ -70,7 +70,11 @@ def prepare_wiki_url(lang):
     size = size[descOrder]
 
     filenames = np.array([urlsplit(url).path.split('/')[-1] for url in href])
-    numbers = np.array([int(re.findall('articles(\d+).xml', fn)[0]) for fn in filenames])
+    numbers = [re.findall('articles(\d+).xml', fn)[0] for fn in filenames]
+    for i in range(len(numbers) - 1, -1, -1):
+        if numbers[:i].count(numbers[i]):
+            numbers[i] += '-' + str(numbers[:i].count(numbers[i]))
+    numbers = np.array(numbers)
     paths = np.array([os.path.join(lang, fn) for fn in filenames])
 
     if not os.path.isdir(lang):  # 如果連目錄都沒有建，全部都需要下載
@@ -127,7 +131,9 @@ def download(info):
     assert os.stat(output).st_size == size, '{} downloaded failed'.format(filename)
     ed = dt.now()
     del download_log[number]
-    print("[{}] finished, duration={}".format(filename, ed - st))
+    duration = (ed - st).total_seconds()
+    print("\n[{}] finished, average speed = {:.2f} MB/s".format(
+        filename, size / duration))
 
 
 def dump_wiki(lang):

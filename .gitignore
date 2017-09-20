@@ -1,3 +1,8 @@
 *.bz2
 *.out
 *.pyc
+zh/
+en/
+ja/
+testlog
+

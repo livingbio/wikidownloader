@@ -11,9 +11,10 @@ monkey.patch_all()
 import requests
 from bs4 import *
 import os
+from collections import namedtuple
 
 from datetime import datetime as dt
-from time import mktime
+from time import mktime, time
 import re
 import numpy as np
 from gevent.pool import Pool
@@ -68,32 +69,72 @@ def prepare_wiki_url(lang):
     date = date[descOrder]
     size = size[descOrder]
 
-    return zip(href, date, size)
+    filenames = np.array([urlsplit(url).path.split('/')[-1] for url in href])
+    numbers = np.array([int(re.findall('articles(\d+).xml', fn)[0]) for fn in filenames])
+    paths = np.array([os.path.join(lang, fn) for fn in filenames])
+
+    if not os.path.isdir(lang):  # 如果連目錄都沒有建，全部都需要下載
+        os.mkdir(lang)
+        return zip(href, [lang] * len(articles), date, size, paths, filenames, numbers)
+
+    to_download = np.array([not os.path.isfile(fn) or  # the file doesn't exist
+                            dt.fromtimestamp(os.stat(fn).st_mtime) != day or  # the date's wrong
+                            os.stat(fn).st_size != sz  # the size's wrong
+                            for day, sz, fn in zip(date, size, paths)])
+    href = href[to_download]
+    date = date[to_download]
+    size = size[to_download]
+    paths = paths[to_download]
+    filenames = filenames[to_download]
+    numbers = numbers[to_download]
+
+    return zip(href, [lang] * len(articles), date, size, paths, filenames, numbers)
+
+
+download_log = dict()
+Log = namedtuple('Log', ['size_mb', 'last_mb', 'duration', 'speed', 'percent', 'st_time', 'last_time'])
+
+
+def gen_download_hook(number):
+    def download_hook(count, block_size, total_size):
+        self_log = download_log[number]
+        if time() - self_log.last_time < 0.1:
+            return
+        size_mb = count * block_size / 1024.0 / 1024.0
+        speed = (size_mb - self_log.last_mb) / (time() - self_log.last_time)
+        last_mb, last_time = size_mb, time()
+        percent = min(int(count * block_size * 100 / total_size), 100)
+        download_log[number] = Log(size_mb, size_mb, time() - self_log.st_time,
+            speed, percent, self_log.st_time, time())
+        info = '\r'
+        for n, log in download_log.items():
+            tmp = '[{}] {}%, {:.0f} MB, {:.2f} MB/s'.format(
+                n, log.percent, log.size_mb, log.speed)
+            info += tmp + ' ' * (35 - len(tmp))
+        print(info, end='')
+    return download_hook
 
 
 def download(info):
-    url, lang, date, size = info
-    filename = urlsplit(url).path.split('/')[-1]
-    output = lang + '/' + filename
+    url, lang, date, size, output, filename, number = info
     if not os.path.isdir(lang):
         os.mkdir(lang)
 
     st = dt.now()
-    urlretrieve(url, output)
+    download_log[number] = Log(0, 0, 0, 0, 0, time(), time())
+    urlretrieve(url, output, reporthook=gen_download_hook(number))
     os.utime(output, (mktime(date.timetuple()),) * 2)
-    assert os.stat(output).st_size == size
+    assert os.stat(output).st_size == size, '{} downloaded failed'.format(filename)
     ed = dt.now()
+    del download_log[number]
     print("[{}] finished, duration={}".format(filename, ed - st))
 
 
 def dump_wiki(lang):
     infos = prepare_wiki_url(lang)
-    print('Start Time: {}'.format(dt.now()))
-    for url, date, size in infos:
-        print('    {}, {}, {}'.format(url, date, size))
-
+    print(len(infos))
     pool = Pool(3)
-    pool.map(download, [(url, lang, date, size) for url, date, size in infos])
+    pool.map(download, infos)
 
 
 if __name__ == '__main__':

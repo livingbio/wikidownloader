@@ -133,7 +133,7 @@ def download(info):
     del download_log[number]
     duration = (ed - st).total_seconds()
     print("\n[{}] finished, average speed = {:.2f} MB/s".format(
-        filename, size / duration))
+        filename, size / 1024.0 / 1024.0 / duration))
 
 
 def dump_wiki(lang):

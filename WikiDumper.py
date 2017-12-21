@@ -70,7 +70,12 @@ def prepare_wiki_url(lang):
     size = size[descOrder]
 
     filenames = np.array([urlsplit(url).path.split('/')[-1] for url in href])
-    numbers = [re.findall('articles(\d+).xml', fn)[0] for fn in filenames]
+    try:
+        numbers = [re.findall('articles(\d+).xml', fn)[0] for fn in filenames]
+    except IndexError:
+        #如果檔案有articles.xml...的格式，沒有含任何數字
+        print('No numbers found in filenames. Creating numbers.')
+        numbers = list(range(len(filenames)))
     for i in range(len(numbers) - 1, -1, -1):
         if numbers[:i].count(numbers[i]):
             numbers[i] += '-' + str(numbers[:i].count(numbers[i]))

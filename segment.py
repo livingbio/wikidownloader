@@ -14,6 +14,7 @@ from zhconvert import conv2tw
 from nltk import word_tokenize
 import os
 
+
 current_path = os.path.dirname(os.path.abspath(__file__))
 
 def timeout_handler(*args):
@@ -55,6 +56,7 @@ mapping = {}
 mapping['zh'] = zh_segment
 mapping['ja'] = ja_segment
 mapping['en'] = en_segment
+mapping['id'] = en_segment #為了segment印尼語，使用與英文一樣的word_tokenizer
 
 def segment_text(lang, text):
     cache = getattr(segment_text, "cache", {})

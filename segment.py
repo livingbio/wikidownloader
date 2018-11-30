@@ -5,13 +5,10 @@
 #
 # Distributed under terms of the MIT license.
 from __future__ import unicode_literals
-from pyknp import Juman
 import string
 import re
 import signal
 import time
-from zhconvert import conv2tw
-from nltk import word_tokenize
 import os
 
 
@@ -30,7 +27,18 @@ fileConfig(os.path.join(current_path, 'logging_config.ini'))
 logger = logging.getLogger()
 
 
+def ko_segment():
+    from konlpy.tag import Mecab
+
+    mecab = Mecab()
+    def segment(text):
+        return mecab.morphs(text)
+    return segment
+
+
 def ja_segment():
+    from pyknp import Juman
+
     juman = Juman()
     def segment(text):
         seg = juman.analysis(text)
@@ -39,6 +47,7 @@ def ja_segment():
 
 def zh_segment():
     from stanford_segmenter import Segmenter
+    from zhconvert import conv2tw
 
     segmenter = Segmenter()
     segmenter.tw_segment('因為第一次載入時間較長，為避免timeout，要先跑一次斷詞')
@@ -48,6 +57,8 @@ def zh_segment():
     return segment
 
 def en_segment():
+    from nltk import word_tokenize
+
     def segment(text):
         return word_tokenize(text)
     return segment
@@ -57,14 +68,14 @@ mapping['zh'] = zh_segment
 mapping['ja'] = ja_segment
 mapping['en'] = en_segment
 mapping['id'] = en_segment #為了segment印尼語，使用與英文一樣的word_tokenizer
+mapping['ko'] = ko_segment
+
 
 def segment_text(lang, text):
     cache = getattr(segment_text, "cache", {})
     if not cache.get(lang, None):
         cache[lang] = mapping[lang]()
         setattr(segment_text, 'cache', cache)
-    if isinstance(text, str):
-        text = text.decode('utf-8')
     lang_segmenter = cache[lang]
     sents = text.strip().split('\n')
     result = []

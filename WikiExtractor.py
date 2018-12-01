@@ -58,14 +58,20 @@ import os.path
 import re  # TODO use regex when it will be standard
 import time
 import urllib
-from cStringIO import StringIO
-from htmlentitydefs import name2codepoint
-from itertools import izip, izip_longest
+try:
+    from cStringIO import StringIO
+    from htmlentitydefs import name2codepoint
+    from itertools import izip, izip_longest
+except ImportError:
+    from io import StringIO
+    from html.entities import name2codepoint
+    izip = zip
+    from itertools import zip_longest as izip_longest
+
 from multiprocessing import Queue, Process, Value, cpu_count
 from timeit import default_timer
 from segment import segment_text
 import traceback
-from zhconvert import conv2tw
 
 # ===========================================================================
 
@@ -224,11 +230,11 @@ def unescape(text):
         try:
             if text[1] == "#":  # character reference
                 if text[2] == "x":
-                    return unichr(int(code[1:], 16))
+                    return chr(int(code[1:], 16))
                 else:
-                    return unichr(int(code))
+                    return chr(int(code))
             else:  # named entity
-                return unichr(name2codepoint[code])
+                return chr(name2codepoint[code])
         except:
             return text  # leave as is
 
@@ -332,10 +338,10 @@ class Template(list):
         return ''.join([tpl.subst(params, extractor, depth) for tpl in self])
 
     def __str__(self):
-        return ''.join([unicode(x) for x in self])
+        return ''.join([str(x) for x in self])
 
 
-class TemplateText(unicode):
+class TemplateText(str):
     """Fixed text of template"""
 
     def subst(self, params, extractor, depth):
@@ -429,7 +435,7 @@ def clean_template(text):
         return clean_template(new_text)
 
 def clean_comma(text):
-    main = u"\u00b7",
+    main = u"\u00b7"
     patterns = [
         u"\uff0e",
         u"\u2027",
@@ -499,8 +505,13 @@ class Extractor(object):
         """
         global lang
         self.id = id
-        self.title = conv2tw(title)
-        self.text = conv2tw(''.join(lines))
+        if lang == 'zh':
+            from zhconvert import conv2tw
+            self.title = conv2tw(title)
+            self.text = conv2tw(''.join(lines))
+        else:
+            self.title = title
+            self.text = ''.join(lines)
         text = self.text
         title = self.title
 
@@ -1482,7 +1493,7 @@ def sharp_expr(expr):
         expr = re.sub('mod', '%', expr)
         expr = re.sub('\bdiv\b', '/', expr)
         expr = re.sub('\bround\b', '|ROUND|', expr)
-        return unicode(eval(expr))
+        return str(eval(expr))
     except:
         return '<span class="error"></span>'
 
@@ -2265,9 +2276,7 @@ def compact(text):
                 title += '.'    # terminate sentence.
             headers[lev] = title
             # drop previous headers
-            for i in headers.keys():
-                if i > lev:
-                    del headers[i]
+            headers = {i: headers[i] for i in headers if i <= lev}
             emptySection = True
             listLevel = []
             continue
@@ -2355,7 +2364,7 @@ def compact(text):
 def handle_unicode(entity):
     numeric_code = int(entity[2:-1])
     if numeric_code >= 0x10000: return ''
-    return unichr(numeric_code)
+    return chr(numeric_code)
 
 
 # ------------------------------------------------------------------------------
@@ -2386,7 +2395,7 @@ class NextFile(object):
     def _dirname(self):
         char1 = self.dir_index % 26
         char2 = self.dir_index / 26 % 26
-        return os.path.join(self.path_name, '%c%c' % (ord('A') + char2, ord('A') + char1))
+        return os.path.join(self.path_name, '{:c}{:c}'.format(int(ord('A') + char2), int(ord('A') + char1)))
 
     def _filepath(self):
         return '%s/wiki_%02d' % (self._dirname(), self.file_index)
@@ -2632,7 +2641,7 @@ def process_dump(input_file, template_file, out_file, file_size, file_compress,
     # start worker processes
     logging.info("Using %d extract processes.", worker_count)
     workers = []
-    for i in xrange(worker_count):
+    for i in range(worker_count):
         extractor = Process(target=extract_process,
                             args=(i, jobs_queue, output_queue))
         extractor.daemon = True  # only live while parent process lives
@@ -2688,23 +2697,22 @@ def extract_process(i, jobs_queue, output_queue):
     :param jobs_queue: where to get jobs.
     :param output_queue: where to queue extracted text for output.
     """
-    out = StringIO()                 # memory buffer
     while True:
         job = jobs_queue.get()  # job is (id, title, page, page_num)
         if job:
             id, title, page, page_num = job
             try:
+                out = StringIO()                 # memory buffer
                 e = Extractor(*job[:3]) # (id, title, page)
                 page = None              # free memory
                 e.extract(out)
                 text = out.getvalue()
             except Exception as e:
-                print e
+                print(e)
                 text = ''
                 traceback.print_exc()
                 logging.error('Processing page: %s %s', id, title)
             output_queue.put((page_num, text))
-            out.truncate(0)
         else:
             logging.debug('Quit extractor')
             break
@@ -2896,5 +2904,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as e:
-        print e
+        print(e)
         pass

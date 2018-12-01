@@ -97,7 +97,7 @@ def prepare_wiki_url(lang):
     filenames = filenames[to_download]
     numbers = numbers[to_download]
 
-    return zip(href, [lang] * len(articles), date, size, paths, filenames, numbers)
+    return list(zip(href, [lang] * len(articles), date, size, paths, filenames, numbers))
 
 
 download_log = dict()
@@ -143,6 +143,7 @@ def download(info):
 
 def dump_wiki(lang):
     infos = prepare_wiki_url(lang)
+    print(infos)
     print(len(infos))
     pool = Pool(3)
     pool.map(download, infos)

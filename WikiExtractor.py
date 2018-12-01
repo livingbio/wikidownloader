@@ -2697,12 +2697,12 @@ def extract_process(i, jobs_queue, output_queue):
     :param jobs_queue: where to get jobs.
     :param output_queue: where to queue extracted text for output.
     """
-    out = StringIO()                 # memory buffer
     while True:
         job = jobs_queue.get()  # job is (id, title, page, page_num)
         if job:
             id, title, page, page_num = job
             try:
+                out = StringIO()                 # memory buffer
                 e = Extractor(*job[:3]) # (id, title, page)
                 page = None              # free memory
                 e.extract(out)
@@ -2713,7 +2713,6 @@ def extract_process(i, jobs_queue, output_queue):
                 traceback.print_exc()
                 logging.error('Processing page: %s %s', id, title)
             output_queue.put((page_num, text))
-            out.truncate(0)
         else:
             logging.debug('Quit extractor')
             break
